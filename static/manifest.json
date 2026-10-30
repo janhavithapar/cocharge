@@ -1,0 +1,20 @@
+{
+  "id": "/",
+  "name": "CoCharge India",
+  "short_name": "CoCharge",
+  "description": "Find and reserve a nearby community EV charger.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F6F8FB",
+  "theme_color": "#0F172A",
+  "icons": [
+    {
+      "src": "/static/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

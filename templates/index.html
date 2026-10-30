@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0F172A">
+  <meta name="description" content="Find and reserve a nearby private EV charger with CoCharge India.">
+  <title>CoCharge India — Find a charger nearby</title>
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+  <link rel="icon" href="{{ url_for('static', filename='icon.svg') }}" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='icon.svg') }}">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <style>
+    :root { color-scheme: light; --navy:#0F172A; --navy-soft:#1E293B; --amber:#F59E0B; --orange:#EA580C; --paper:#F6F8FB; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--paper); color:var(--navy); font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    button,input,select { font:inherit; }
+    button:focus-visible,input:focus-visible,select:focus-visible { outline:3px solid #F59E0B; outline-offset:2px; }
+    #map { height: min(66vh, 620px); min-height: 390px; z-index:0; background:#e9eef3; }
+    .map-pin { width:42px;height:42px;border:3px solid white;border-radius:50% 50% 50% 8px;transform:rotate(-45deg);display:grid;place-items:center;background:var(--amber);box-shadow:0 3px 14px #0f172a44; }
+    .map-pin span { transform:rotate(45deg);font-weight:800;font-size:13px;color:var(--navy); }
+    .leaflet-container { font-family:inherit; }
+    .safe-bottom { padding-bottom:max(1rem,env(safe-area-inset-bottom)); }
+    .modal-backdrop { background:rgba(15,23,42,.58); }
+    .toast { animation:toast-in .18s ease-out; }
+    @keyframes toast-in { from {opacity:0;transform:translateY(8px)} to {opacity:1;transform:translateY(0)} }
+    @media(max-width:640px) { #map {height:55vh;min-height:340px} }
+  </style>
+</head>
+<body>
+  <header class="sticky top-0 z-[1000] border-b border-slate-200 bg-white/95 backdrop-blur">
+    <div class="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
+      <a href="/" class="flex items-center gap-2.5" aria-label="CoCharge India home">
+        <span class="grid h-10 w-10 place-items-center rounded-xl bg-slate-900 text-amber-400">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M13.2 2.5 5.7 13h5.1l-.5 8.5L18.3 11h-5.2l.1-8.5Z" fill="currentColor"/></svg>
+        </span>
+        <span><span class="block text-base font-extrabold tracking-tight text-slate-900">CoCharge <span class="text-amber-600">India</span></span><span class="hidden text-[11px] font-medium text-slate-500 sm:block">Community EV charging</span></span>
+      </a>
+      <div class="flex items-center gap-2">
+        <button id="install-button" class="hidden rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Install app</button>
+        <button id="profile-button" class="flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm font-bold text-slate-800 hover:bg-slate-200" aria-label="Set up your profile">
+          <span id="profile-initial" class="grid h-7 w-7 place-items-center rounded-full bg-slate-900 text-xs text-white">?</span><span id="profile-label" class="hidden sm:inline">Set up profile</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-7xl px-3 pb-12 pt-4 sm:px-6 sm:pt-6">
+    <section class="mb-4 overflow-hidden rounded-2xl bg-slate-900 text-white shadow-sm">
+      <div class="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div class="flex items-start gap-3">
+          <span class="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-400 text-slate-900" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 3 2.8 19h18.4L12 3Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 9v4m0 3h.01" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+          </span>
+          <div><h1 class="font-bold leading-6">Low battery? Find a charger now.</h1><p class="mt-0.5 text-sm text-slate-300">Show available community chargers within 3 km of your location.</p></div>
+        </div>
+        <button id="rescue-button" class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-400 px-4 py-3 font-extrabold text-slate-900 transition hover:bg-amber-300 active:scale-[.98]">
+          Find a 3 km rescue <span aria-hidden="true">→</span>
+        </button>
+      </div>
+    </section>
+
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div><h2 class="text-xl font-extrabold tracking-tight text-slate-900">Chargers near you</h2><p id="results-caption" class="mt-0.5 text-sm text-slate-500">Use your location to see nearby availability.</p></div>
+      <div class="flex flex-wrap gap-2">
+        <button id="locate-button" class="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-700 shadow-sm hover:border-slate-300">◎ <span class="ml-1">Use my location</span></button>
+        <button id="show-all-button" class="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-700 shadow-sm hover:border-slate-300">Show all</button>
+        <button id="host-mode-button" class="rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-slate-800">Host a charger</button>
+      </div>
+    </div>
+
+    <section class="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" aria-label="Map of available private EV chargers">
+      <div id="map" role="application" aria-label="Interactive charger map"></div>
+      <div id="map-empty" class="pointer-events-none absolute left-1/2 top-1/2 z-[500] hidden w-[min(88%,360px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white/95 p-5 text-center shadow-lg backdrop-blur">
+        <div class="mx-auto mb-2 grid h-11 w-11 place-items-center rounded-full bg-amber-100 text-amber-700">⚡</div>
+        <h3 class="font-bold text-slate-900">No listings in this area yet</h3>
+        <p class="mt-1 text-sm leading-5 text-slate-500">Try showing all available chargers or host your own charger. Listings appear here when a host adds one.</p>
+      </div>
+      <div class="absolute bottom-3 left-3 z-[500] rounded-lg bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-slate-600 shadow">Map data © OpenStreetMap</div>
+    </section>
+
+    <section id="host-panel" class="mt-5 hidden grid-cols-1 gap-4 lg:grid-cols-[1.05fr_.95fr]" aria-label="Host dashboard">
+      <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div class="mb-4 flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-amber-700">Host mode</p><h2 class="mt-1 text-xl font-extrabold">List your charger</h2><p class="mt-1 text-sm text-slate-500">Share an available parking spot and set your rate.</p></div><span class="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">Your listing</span></div>
+        <form id="charger-form" class="grid gap-3 sm:grid-cols-2">
+          <label class="sm:col-span-2"><span class="mb-1 block text-sm font-semibold text-slate-700">Listing name</span><input name="title" maxlength="100" required placeholder="e.g. Covered driveway charger" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"></label>
+          <label class="sm:col-span-2"><span class="mb-1 block text-sm font-semibold text-slate-700">Address / access instructions</span><input name="address" maxlength="240" required placeholder="Street, locality, city" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"></label>
+          <label><span class="mb-1 block text-sm font-semibold text-slate-700">Latitude</span><input name="lat" id="charger-lat" type="number" step="any" min="6" max="38" required placeholder="Use location" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"></label>
+          <label><span class="mb-1 block text-sm font-semibold text-slate-700">Longitude</span><input name="lng" id="charger-lng" type="number" step="any" min="68" max="98" required placeholder="Use location" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"></label>
+          <label><span class="mb-1 block text-sm font-semibold text-slate-700">Connector</span><select name="connector_type" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm"><option>Type 2</option><option>CCS2</option></select></label>
+          <label><span class="mb-1 block text-sm font-semibold text-slate-700">Price per kWh (₹)</span><input name="price_per_kwh" type="number" min=".1" max="500" step=".1" required placeholder="e.g. 12" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"></label>
+          <label class="sm:col-span-2"><span class="mb-1 block text-sm font-semibold text-slate-700">Availability hours</span><input name="available_hours" maxlength="100" required value="Available now" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"></label>
+          <div class="flex flex-wrap items-center gap-3 sm:col-span-2"><button type="submit" class="rounded-xl bg-amber-400 px-5 py-3 font-extrabold text-slate-900 hover:bg-amber-300">Publish listing</button><button type="button" id="fill-location-button" class="text-sm font-bold text-slate-700 underline decoration-slate-300 underline-offset-4">Fill my location</button><span class="text-xs text-slate-500">No listing fee is charged here.</span></div>
+        </form>
+      </div>
+      <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div class="flex items-end justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-slate-500">Host dashboard</p><h2 class="mt-1 text-xl font-extrabold">Your activity</h2></div><div class="text-right"><p class="text-xs font-semibold text-slate-500">Completed earnings</p><p id="earnings-total" class="text-xl font-extrabold text-slate-900">₹0</p></div></div>
+        <div id="host-listings" class="mt-4 space-y-3"><p class="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Your charger listings will appear here.</p></div>
+        <div class="mt-5 border-t border-slate-100 pt-4"><h3 class="text-sm font-bold">Bookings</h3><div id="host-bookings" class="mt-2 space-y-2"><p class="text-sm text-slate-500">No bookings yet.</p></div></div>
+      </div>
+    </section>
+
+    <section id="driver-panel" class="mt-5 hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6" aria-label="Your bookings">
+      <div class="flex items-end justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-slate-500">Driver mode</p><h2 class="mt-1 text-xl font-extrabold">Your reservations</h2></div><p class="text-xs text-slate-500">UPI is simulated in this prototype.</p></div>
+      <div id="driver-bookings" class="mt-4 grid gap-3 sm:grid-cols-2"><p class="text-sm text-slate-500">Your reservations will appear here.</p></div>
+    </section>
+  </main>
+
+  <aside id="charger-sheet" class="fixed inset-x-0 bottom-0 z-[1200] hidden max-h-[82vh] overflow-y-auto rounded-t-3xl border border-slate-200 bg-white shadow-[0_-12px_40px_#0f172a22] sm:bottom-5 sm:left-1/2 sm:w-[min(94vw,440px)] sm:-translate-x-1/2 sm:rounded-2xl" aria-label="Charger details" aria-live="polite">
+    <div class="mx-auto mt-2 h-1 w-10 rounded-full bg-slate-200 sm:hidden"></div>
+    <div class="p-5">
+      <div class="flex items-start justify-between gap-3"><div><p id="sheet-connector" class="text-xs font-bold uppercase tracking-wider text-amber-700"></p><h2 id="sheet-title" class="mt-1 text-xl font-extrabold"></h2></div><button id="close-sheet" class="grid h-9 w-9 place-items-center rounded-full bg-slate-100 text-lg text-slate-700" aria-label="Close charger details">×</button></div>
+      <p id="sheet-address" class="mt-2 text-sm leading-5 text-slate-600"></p>
+      <div class="mt-4 grid grid-cols-2 gap-2"><div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-500">Host</p><p id="sheet-host" class="mt-1 font-bold"></p></div><div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-500">Price</p><p id="sheet-price" class="mt-1 font-extrabold"></p></div><div class="col-span-2 rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-500">Availability</p><p id="sheet-hours" class="mt-1 font-semibold"></p></div></div>
+      <div id="distance-note" class="mt-3 text-xs font-semibold text-slate-500"></div>
+      <button id="navigate-button" class="mt-4 w-full rounded-xl border border-slate-200 py-3 font-bold text-slate-700 hover:bg-slate-50">Open directions</button>
+      <button id="book-button" class="mt-2 w-full rounded-xl bg-amber-400 py-3.5 font-extrabold text-slate-900 shadow-sm hover:bg-amber-300">Book &amp; navigate now</button>
+    </div>
+  </aside>
+
+  <div id="profile-modal" class="modal-backdrop fixed inset-0 z-[2000] hidden items-center justify-center p-4">
+    <section class="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-7" role="dialog" aria-modal="true" aria-labelledby="profile-title">
+      <div class="mb-5 flex items-center gap-3"><span class="grid h-11 w-11 place-items-center rounded-2xl bg-amber-100 text-amber-700">⚡</span><div><h2 id="profile-title" class="text-xl font-extrabold">Get started with CoCharge</h2><p class="text-sm text-slate-500">Choose how you want to use the network.</p></div></div>
+      <form id="profile-form" class="space-y-3">
+        <label class="block"><span class="mb-1 block text-sm font-semibold">Your name</span><input name="name" required minlength="2" maxlength="80" autocomplete="name" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm" placeholder="Name"></label>
+        <label class="block"><span class="mb-1 block text-sm font-semibold">Indian mobile number</span><div class="flex rounded-xl border border-slate-200"><span class="px-3 py-3 text-sm font-semibold text-slate-500">+91</span><input name="phone" type="tel" inputmode="numeric" pattern="[6-9][0-9]{9}" maxlength="10" required autocomplete="tel-national" class="min-w-0 flex-1 rounded-r-xl px-3 py-3 text-sm outline-none" placeholder="10-digit number"></div><span class="mt-1 block text-xs text-slate-500">Prototype profile only; no OTP or phone verification is performed.</span></label>
+        <label class="block"><span class="mb-1 block text-sm font-semibold">I want to</span><select name="role" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm"><option value="driver">Find and book a charger</option><option value="host">Host my charger</option></select></label>
+        <div class="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">KYC is not verified in this prototype. Listings and booking reservations are local demo data; UPI checkout does not transfer money.</div>
+        <button class="w-full rounded-xl bg-slate-900 py-3.5 font-extrabold text-white hover:bg-slate-800">Continue</button>
+        <button type="button" id="cancel-profile" class="hidden w-full py-2 text-sm font-semibold text-slate-500">Cancel</button>
+      </form>
+    </section>
+  </div>
+
+  <div id="payment-modal" class="modal-backdrop fixed inset-0 z-[2100] hidden items-center justify-center p-4">
+    <section class="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="payment-title">
+      <div class="bg-slate-900 p-5 text-white"><div class="flex items-center justify-between"><div><p class="text-xs font-bold uppercase tracking-wider text-amber-300">Secure reservation</p><h2 id="payment-title" class="mt-1 text-xl font-extrabold">Confirm your session</h2></div><button id="close-payment" class="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-xl" aria-label="Close payment">×</button></div><p id="payment-charger" class="mt-2 text-sm text-slate-300"></p></div>
+      <form id="payment-form" class="space-y-4 p-5">
+        <label class="block"><span class="mb-1 block text-sm font-semibold">Energy needed (kWh)</span><input id="energy-input" type="number" value="10" min=".1" max="1000" step=".1" required class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"></label>
+        <fieldset><legend class="mb-2 text-sm font-semibold">Choose a UPI app <span class="font-normal text-slate-500">(simulation)</span></legend><div class="grid grid-cols-3 gap-2"><label class="cursor-pointer"><input class="peer sr-only" type="radio" name="payment_method" value="Google Pay" checked><span class="block rounded-xl border border-slate-200 p-3 text-center text-xs font-bold peer-checked:border-amber-500 peer-checked:bg-amber-50">Google Pay</span></label><label class="cursor-pointer"><input class="peer sr-only" type="radio" name="payment_method" value="PhonePe"><span class="block rounded-xl border border-slate-200 p-3 text-center text-xs font-bold peer-checked:border-amber-500 peer-checked:bg-amber-50">PhonePe</span></label><label class="cursor-pointer"><input class="peer sr-only" type="radio" name="payment_method" value="UPI"><span class="block rounded-xl border border-slate-200 p-3 text-center text-xs font-bold peer-checked:border-amber-500 peer-checked:bg-amber-50">Other UPI</span></label></div></fieldset>
+        <div class="flex items-center justify-between rounded-xl bg-slate-50 p-4"><span class="text-sm font-semibold text-slate-600">Estimated total</span><strong id="payment-total" class="text-xl font-extrabold">₹0</strong></div>
+        <p class="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">Demo checkout only: no UPI app is opened and no money is collected. Confirming reserves this listing in the local app.</p>
+        <button id="confirm-booking" class="w-full rounded-xl bg-amber-400 py-3.5 font-extrabold text-slate-900 hover:bg-amber-300">Confirm simulated payment &amp; reserve</button>
+      </form>
+    </section>
+  </div>
+
+  <div id="toast-region" class="pointer-events-none fixed bottom-4 left-1/2 z-[3000] w-[min(92vw,440px)] -translate-x-1/2 space-y-2" role="status" aria-live="polite"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script>
+    (() => {
+      "use strict";
+      const $ = (selector) => document.querySelector(selector);
+      const csrf = { token: "" };
+      const state = { user: null, map: null, markers: [], chargers: [], selected: null, reservedChargerId: null, location: null, rescue: false, installPrompt: null };
+      const modal = (element, show) => { element.classList.toggle("hidden", !show); element.classList.toggle("flex", show); };
+      const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[char]));
+      const money = (value) => new Intl.NumberFormat("en-IN", { style:"currency", currency:"INR", maximumFractionDigits:2 }).format(value);
+
+      async function api(url, options = {}) {
+        const headers = { "Accept":"application/json", ...(options.headers || {}) };
+        if (options.body) { headers["Content-Type"] = "application/json"; headers["X-CSRF-Token"] = csrf.token; }
+        const response = await fetch(url, { ...options, headers, credentials:"same-origin" });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
+        return data;
+      }
+
+      function toast(message, error = false) {
+        const item = document.createElement("div");
+        item.className = `toast pointer-events-auto rounded-xl px-4 py-3 text-sm font-semibold shadow-lg ${error ? "bg-orange-700 text-white" : "bg-slate-900 text-white"}`;
+        item.textContent = message;
+        $("#toast-region").append(item);
+        window.setTimeout(() => item.remove(), 4200);
+      }
+
+      function setProfile(user) {
+        state.user = user;
+        $("#profile-label").textContent = user ? `${user.name} · ${user.role}` : "Set up profile";
+        $("#profile-initial").textContent = user ? user.name.trim().charAt(0).toUpperCase() : "?";
+        $("#host-mode-button").textContent = user && user.role === "host" ? "Driver mode" : "Host a charger";
+        $("#host-panel").classList.toggle("hidden", !(user && user.role === "host"));
+        $("#host-panel").classList.toggle("grid", Boolean(user && user.role === "host"));
+        $("#driver-panel").classList.toggle("hidden", !(user && user.role === "driver"));
+        if (user && user.role === "host") refreshHostDashboard();
+        if (user && user.role === "driver") refreshDriverDashboard();
+      }
+
+      function initializeMap() {
+        state.map = L.map("map", { zoomControl:true, scrollWheelZoom:false }).setView([20.5937, 78.9629], 5);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom:19, attribution:"&copy; OpenStreetMap contributors"
+        }).addTo(state.map);
+      }
+
+      function clearMarkers() {
+        state.markers.forEach((marker) => marker.remove());
+        state.markers = [];
+      }
+
+      function showEmpty(show) {
+        $("#map-empty").classList.toggle("hidden", !show);
+      }
+
+      function openCharger(charger) {
+        state.selected = charger;
+        if (state.reservedChargerId !== charger.id) state.reservedChargerId = null;
+        $("#sheet-title").textContent = charger.title;
+        $("#sheet-connector").textContent = charger.connector_type;
+        $("#sheet-address").textContent = charger.address;
+        $("#sheet-host").textContent = `${charger.host_name}${charger.host_kyc_verified ? " · KYC verified" : " · Not KYC verified"}`;
+        $("#sheet-price").textContent = `${money(charger.price_per_kwh)} / kWh`;
+        $("#sheet-hours").textContent = charger.available_hours;
+        $("#distance-note").textContent = Number.isFinite(charger.distance_km) ? `${charger.distance_km.toFixed(1)} km from your location` : "Distance unavailable until you share your location.";
+        $("#book-button").disabled = Boolean(state.user && state.user.role === "host" && state.user.id === charger.host_id);
+        $("#book-button").textContent = $("#book-button").disabled ? "This is your listing" : state.reservedChargerId === charger.id ? "Reservation confirmed — navigate" : "Book & navigate now";
+        $("#book-button").classList.toggle("opacity-50", $("#book-button").disabled);
+        $("#charger-sheet").classList.remove("hidden");
+        if (window.innerWidth < 640) $("#charger-sheet").scrollIntoView({ behavior:"smooth", block:"end" });
+      }
+
+      function renderChargers(chargers) {
+        state.chargers = chargers;
+        clearMarkers();
+        chargers.forEach((charger) => {
+          const icon = L.divIcon({
+            className:"",
+            html:`<div class="map-pin" aria-label="${escapeHtml(charger.title)}"><span>⚡</span></div>`,
+            iconSize:[42,42], iconAnchor:[21,39], popupAnchor:[0,-38]
+          });
+          const marker = L.marker([charger.lat, charger.lng], { icon, title:charger.title }).addTo(state.map);
+          marker.on("click", () => openCharger(charger));
+          state.markers.push(marker);
+        });
+        showEmpty(chargers.length === 0);
+        const label = state.rescue ? "available chargers within 3 km" : "available chargers";
+        $("#results-caption").textContent = `${chargers.length} ${label}${chargers.length === 1 ? "" : ""}${state.location ? " · sorted by distance" : ""}`;
+      }
+
+      async function loadChargers() {
+        const params = new URLSearchParams();
+        if (state.location) {
+          params.set("lat", state.location.lat);
+          params.set("lng", state.location.lng);
+          if (state.rescue) params.set("radius_km", "3");
+        }
+        try {
+          const data = await api(`/api/chargers?${params}`);
+          renderChargers(data.chargers);
+        } catch (error) {
+          toast(error.message, true);
+        }
+      }
+
+      function requestLocation(onSuccess) {
+        if (!navigator.geolocation) { toast("Location is not supported by this browser.", true); return; }
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const { latitude, longitude } = position.coords;
+            if (latitude < 6 || latitude > 38 || longitude < 68 || longitude > 98) {
+              toast("CoCharge India currently supports locations within India.", true); return;
+            }
+            state.location = { lat:latitude, lng:longitude };
+            state.map.setView([latitude, longitude], 13);
+            L.circleMarker([latitude, longitude], { radius:7, color:"#ffffff", weight:3, fillColor:"#1E293B", fillOpacity:1 })
+              .addTo(state.map).bindPopup("Your location");
+            if (onSuccess) onSuccess();
+            else loadChargers();
+          },
+          (error) => toast(error.code === 1 ? "Allow location access to find nearby chargers." : "Could not get your location. Check your device settings and retry.", true),
+          { enableHighAccuracy:true, timeout:10000, maximumAge:60000 }
+        );
+      }
+
+      function setRescueMode() {
+        state.rescue = true;
+        if (!state.location) {
+          requestLocation(() => loadChargers());
+          return;
+        }
+        loadChargers();
+        if (window.innerWidth < 640) $("#map").scrollIntoView({ behavior:"smooth", block:"center" });
+      }
+
+      function directionsUrl(charger) {
+        return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${charger.lat},${charger.lng}`)}`;
+      }
+
+      function openPayment() {
+        if (!state.user) { modal($("#profile-modal"), true); return; }
+        if (state.user.role !== "driver") { toast("Switch to driver mode to book a charger.", true); return; }
+        if (!state.selected) return;
+        $("#payment-charger").textContent = `${state.selected.title} · ${state.selected.connector_type}`;
+        updateTotal();
+        modal($("#payment-modal"), true);
+      }
+
+      function updateTotal() {
+        const kwh = Number($("#energy-input").value);
+        const total = state.selected && Number.isFinite(kwh) ? kwh * state.selected.price_per_kwh : 0;
+        $("#payment-total").textContent = money(total);
+      }
+
+      async function refreshHostDashboard() {
+        if (!state.user || state.user.role !== "host") return;
+        try {
+          const [listingData, bookingData] = await Promise.all([api("/api/my-chargers"), api("/api/bookings")]);
+          $("#earnings-total").textContent = money(bookingData.completed_earnings);
+          $("#host-listings").innerHTML = listingData.chargers.length ? listingData.chargers.map((charger) => `
+            <article class="rounded-xl border border-slate-200 p-3">
+              <div class="flex items-start justify-between gap-3"><div><h3 class="font-bold">${escapeHtml(charger.title)}</h3><p class="mt-1 text-xs text-slate-500">${escapeHtml(charger.connector_type)} · ${money(charger.price_per_kwh)}/kWh</p><p class="mt-1 text-xs text-slate-500">${escapeHtml(charger.address)}</p></div>
+              <button data-availability="${charger.id}" data-next="${!charger.is_available}" class="shrink-0 rounded-lg px-3 py-2 text-xs font-bold ${charger.is_available ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}">${charger.is_available ? "Available" : "Paused"}</button></div>
+            </article>`).join("") : '<p class="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No charger listed yet. Add your first listing above.</p>';
+          const incoming = bookingData.bookings;
+          $("#host-bookings").innerHTML = incoming.length ? incoming.map((booking) => `
+            <article class="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3">
+              <div><p class="text-sm font-bold">${escapeHtml(booking.charger_title)}</p><p class="mt-1 text-xs text-slate-500">${escapeHtml(booking.driver_name)} · ${booking.energy_kwh} kWh · ${money(booking.total_amount)}</p><p class="mt-1 text-xs font-semibold ${booking.status === "active" ? "text-amber-800" : "text-slate-500"}">${escapeHtml(booking.status)}</p></div>
+              ${booking.status === "active" ? `<button data-complete="${booking.id}" class="rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white">Complete</button>` : ""}
+            </article>`).join("") : '<p class="text-sm text-slate-500">No bookings yet.</p>';
+        } catch (error) {
+          toast(error.message, true);
+        }
+      }
+
+      async function refreshDriverDashboard() {
+        if (!state.user || state.user.role !== "driver") return;
+        try {
+          const data = await api("/api/bookings");
+          $("#driver-bookings").innerHTML = data.bookings.length ? data.bookings.map((booking) => `
+            <article class="rounded-xl border border-slate-200 p-4">
+              <div class="flex items-start justify-between gap-2"><div><h3 class="font-bold">${escapeHtml(booking.charger_title)}</h3><p class="mt-1 text-xs text-slate-500">${escapeHtml(booking.address)}</p></div><span class="rounded-full ${booking.status === "active" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-600"} px-2.5 py-1 text-xs font-bold">${escapeHtml(booking.status)}</span></div>
+              <p class="mt-3 text-sm text-slate-600">${booking.energy_kwh} kWh · ${escapeHtml(booking.payment_method)} (simulated)</p><p class="mt-1 font-extrabold">${money(booking.total_amount)}</p>
+              ${booking.status === "active" ? `<a class="mt-3 inline-flex rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white" href="https://www.google.com/maps/dir/?api=1&amp;destination=${booking.lat},${booking.lng}" target="_blank" rel="noopener noreferrer">Open directions</a>` : ""}
+            </article>`).join("") : '<p class="text-sm text-slate-500">No reservations yet. Select an available charger on the map to get started.</p>';
+        } catch (error) {
+          toast(error.message, true);
+        }
+      }
+
+      $("#profile-button").addEventListener("click", () => {
+        const form = $("#profile-form");
+        $("#cancel-profile").classList.remove("hidden");
+        if (state.user) {
+          form.elements.name.value = state.user.name;
+          form.elements.phone.value = state.user.phone.replace(/^\+91/, "");
+          form.elements.role.value = state.user.role;
+        }
+        modal($("#profile-modal"), true);
+      });
+
+      $("#cancel-profile").addEventListener("click", () => modal($("#profile-modal"), false));
+      $("#profile-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        const wasGuest = !state.user;
+        try {
+          const data = await api("/api/session", { method:"POST", body:JSON.stringify(Object.fromEntries(form)) });
+          setProfile(data.user);
+          modal($("#profile-modal"), false);
+          toast(`Welcome, ${data.user.name}.`);
+          if (data.user.role === "host") $("#host-panel").scrollIntoView({ behavior:"smooth", block:"start" });
+          else if (wasGuest && state.selected) openPayment();
+        } catch (error) { toast(error.message, true); }
+      });
+
+      $("#host-mode-button").addEventListener("click", () => {
+        if (!state.user) {
+          $("#cancel-profile").classList.remove("hidden");
+          modal($("#profile-modal"), true);
+          $("#profile-form").elements.role.value = "host";
+          return;
+        }
+        const form = $("#profile-form");
+        form.elements.name.value = state.user.name;
+        form.elements.phone.value = state.user.phone.replace(/^\+91/, "");
+        form.elements.role.value = state.user.role === "host" ? "driver" : "host";
+        $("#cancel-profile").classList.remove("hidden");
+        modal($("#profile-modal"), true);
+      });
+
+      $("#locate-button").addEventListener("click", () => {
+        state.rescue = false;
+        requestLocation();
+      });
+      $("#rescue-button").addEventListener("click", setRescueMode);
+      $("#show-all-button").addEventListener("click", () => { state.rescue = false; loadChargers(); });
+      $("#close-sheet").addEventListener("click", () => $("#charger-sheet").classList.add("hidden"));
+      $("#book-button").addEventListener("click", () => {
+        if (state.selected && state.reservedChargerId === state.selected.id) {
+          window.open(directionsUrl(state.selected), "_blank", "noopener,noreferrer");
+          return;
+        }
+        openPayment();
+      });
+      $("#navigate-button").addEventListener("click", () => { if (state.selected) window.open(directionsUrl(state.selected), "_blank", "noopener,noreferrer"); });
+      $("#close-payment").addEventListener("click", () => modal($("#payment-modal"), false));
+      $("#energy-input").addEventListener("input", updateTotal);
+
+      $("#payment-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!state.selected) return;
+        const button = $("#confirm-booking");
+        button.disabled = true;
+        button.textContent = "Reserving…";
+        try {
+          const data = await api("/api/book", {
+            method:"POST",
+            body:JSON.stringify({
+              charger_id:state.selected.id,
+              energy_kwh:Number($("#energy-input").value),
+              payment_method:new FormData(event.currentTarget).get("payment_method")
+            })
+          });
+          modal($("#payment-modal"), false);
+          state.reservedChargerId = state.selected.id;
+          $("#book-button").textContent = "Reservation confirmed — navigate";
+          toast(`Reserved. Estimated total ${money(data.booking.total_amount)}. No money was charged.`);
+          await Promise.all([loadChargers(), refreshDriverDashboard()]);
+        } catch (error) { toast(error.message, true); }
+        finally { button.disabled = false; button.textContent = "Confirm simulated payment & reserve"; }
+      });
+
+      $("#charger-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        const payload = Object.fromEntries(form);
+        payload.lat = Number(payload.lat);
+        payload.lng = Number(payload.lng);
+        payload.price_per_kwh = Number(payload.price_per_kwh);
+        try {
+          await api("/api/chargers/add", { method:"POST", body:JSON.stringify(payload) });
+          event.currentTarget.reset();
+          event.currentTarget.elements.available_hours.value = "Available now";
+          toast("Your charger is now listed.");
+          await Promise.all([loadChargers(), refreshHostDashboard()]);
+          $("#map").scrollIntoView({ behavior:"smooth", block:"center" });
+        } catch (error) { toast(error.message, true); }
+      });
+
+      function fillChargerLocation() {
+        requestLocation(() => {
+          $("#charger-lat").value = state.location.lat.toFixed(6);
+          $("#charger-lng").value = state.location.lng.toFixed(6);
+          toast("Location added. Adjust the pin coordinates if the charger is elsewhere.");
+        });
+      }
+      $("#fill-location-button").addEventListener("click", fillChargerLocation);
+
+      $("#host-panel").addEventListener("click", async (event) => {
+        const availability = event.target.closest("[data-availability]");
+        const complete = event.target.closest("[data-complete]");
+        try {
+          if (availability) {
+            const data = await api(`/api/chargers/${availability.dataset.availability}/availability`, {
+              method:"POST", body:JSON.stringify({ is_available:availability.dataset.next === "true" })
+            });
+            toast(data.charger.is_available ? "Charger is available to drivers." : "Charger listing paused.");
+            await Promise.all([refreshHostDashboard(), loadChargers()]);
+          }
+          if (complete) {
+            await api(`/api/bookings/${complete.dataset.complete}/complete`, { method:"POST", body:JSON.stringify({}) });
+            toast("Booking marked complete.");
+            await refreshHostDashboard();
+          }
+        } catch (error) { toast(error.message, true); }
+      });
+
+      window.addEventListener("beforeinstallprompt", (event) => {
+        event.preventDefault();
+        state.installPrompt = event;
+        $("#install-button").classList.remove("hidden");
+      });
+      $("#install-button").addEventListener("click", async () => {
+        if (!state.installPrompt) return;
+        state.installPrompt.prompt();
+        await state.installPrompt.userChoice;
+        state.installPrompt = null;
+        $("#install-button").classList.add("hidden");
+      });
+
+      async function start() {
+        initializeMap();
+        try {
+          const data = await api("/api/session");
+          csrf.token = data.csrf_token;
+          setProfile(data.user);
+        } catch (error) { toast(error.message, true); }
+        await loadChargers();
+        if ("serviceWorker" in navigator) {
+          navigator.serviceWorker.register("/static/sw.js").catch(() => toast("Offline support could not be enabled in this browser.", true));
+        }
+        window.setTimeout(() => state.map.invalidateSize(), 100);
+      }
+      start();
+    })();
+  </script>
+</body>
+</html>
