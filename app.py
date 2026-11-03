@@ -7,8 +7,9 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, session
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import Index, text
+from sqlalchemy import Index, inspect, text
 from sqlalchemy.exc import IntegrityError
+from werkzeug.security import check_password_hash, generate_password_hash
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -21,7 +22,20 @@ class User(db.Model):
     phone = db.Column(db.String(16), nullable=False)
     role = db.Column(db.String(10), nullable=False)
     kyc_verified = db.Column(db.Boolean, nullable=False, default=False)
+    password_hash = db.Column(db.String(255), nullable=True)
     chargers = db.relationship("Charger", backref="host", lazy=True)
+
+
+class CampaignAttribution(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True, index=True)
+    event_type = db.Column(db.String(30), nullable=False)
+    source = db.Column(db.String(200), nullable=True)
+    medium = db.Column(db.String(200), nullable=True)
+    campaign = db.Column(db.String(200), nullable=True)
+    term = db.Column(db.String(200), nullable=True)
+    content = db.Column(db.String(200), nullable=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
 class Charger(db.Model):
@@ -121,7 +135,11 @@ def create_app():
     def index():
         if "csrf_token" not in session:
             session["csrf_token"] = secrets.token_urlsafe(32)
-        return render_template("index.html")
+        template_path = Path(app.root_path, "templates", "index.html")
+        last_updated = datetime.fromtimestamp(template_path.stat().st_mtime, timezone.utc).isoformat()
+        response = app.make_response(render_template("index.html", last_updated=last_updated))
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
     def api_error(message, status=400):
         return jsonify(error=message), status
@@ -129,6 +147,19 @@ def create_app():
     def current_user():
         user_id = session.get("user_id")
         return db.session.get(User, user_id) if user_id else None
+
+    def record_attribution(user_id, event_type, payload):
+        utm = payload.get("utm")
+        if not isinstance(utm, dict):
+            return
+        values = {
+            key: value.strip()[:200] if isinstance(value, str) else None
+            for key, value in utm.items()
+            if key in {"source", "medium", "campaign", "term", "content"}
+        }
+        if not any(values.values()):
+            return
+        db.session.add(CampaignAttribution(user_id=user_id, event_type=event_type, **values))
 
     def require_role(role):
         user = current_user()
@@ -225,9 +256,12 @@ def create_app():
     @app.post("/api/session")
     def save_session():
         payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return api_error("Invalid profile details.")
         name = str(payload.get("name", "")).strip()
         phone_input = re.sub(r"[\s()-]", "", str(payload.get("phone", "")))
         phone_digits = phone_input.removeprefix("+91")
+        password = payload.get("password")
         role = payload.get("role")
         if not 2 <= len(name) <= 80:
             return api_error("Enter a name between 2 and 80 characters.")
@@ -237,16 +271,52 @@ def create_app():
             return api_error("Choose driver or host mode.")
 
         user = current_user()
+        normalized_phone = f"+91{phone_digits}"
+        if user and user.phone != normalized_phone:
+            return api_error("Sign out before switching to another account.", 409)
         if user is None:
-            user = User(name=name, phone=f"+91{phone_digits}", role=role)
+            matching_users = User.query.filter_by(phone=normalized_phone).limit(2).all()
+            if len(matching_users) > 1:
+                return api_error("This phone number matches multiple legacy profiles. Contact support.", 409)
+            user = matching_users[0] if matching_users else None
+        if not isinstance(password, str):
+            return api_error("Enter a password with at least 8 characters.")
+        if len(password) > 128:
+            return api_error("Password must be no more than 128 characters.")
+        if user and user.password_hash:
+            if not password or not check_password_hash(user.password_hash, password):
+                return api_error("That phone number and password do not match.")
+        elif password and len(password) < 8:
+            return api_error("Password must be at least 8 characters.")
+        elif not password and not (
+            user and user.password_hash is None and session.get("user_id") == user.id
+        ):
+            return api_error("Set a password with at least 8 characters.")
+
+        if user is None:
+            user = User(name=name, phone=normalized_phone, role=role)
             db.session.add(user)
         else:
             user.name = name
-            user.phone = f"+91{phone_digits}"
+            user.phone = normalized_phone
             user.role = role
+        if password and not user.password_hash:
+            user.password_hash = generate_password_hash(password)
+        db.session.flush()
+        record_attribution(user.id, "profile", payload)
         db.session.commit()
+        session["csrf_token"] = secrets.token_urlsafe(32)
         session["user_id"] = user.id
-        return jsonify(user={"id": user.id, "name": user.name, "phone": user.phone, "role": user.role}), 200
+        return jsonify(
+            csrf_token=session["csrf_token"],
+            user={"id": user.id, "name": user.name, "phone": user.phone, "role": user.role},
+        ), 200
+
+    @app.post("/api/logout")
+    def logout():
+        session.pop("user_id", None)
+        session["csrf_token"] = secrets.token_urlsafe(32)
+        return jsonify(csrf_token=session["csrf_token"])
 
     @app.get("/api/chargers")
     def get_chargers():
@@ -300,6 +370,8 @@ def create_app():
         if error:
             return error
         payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return api_error("Invalid charger details.")
         title = str(payload.get("title", "")).strip()
         address = str(payload.get("address", "")).strip()
         connector = payload.get("connector_type")
@@ -332,6 +404,7 @@ def create_app():
             is_available=True,
         )
         db.session.add(charger)
+        record_attribution(host.id, "charger", payload)
         db.session.commit()
         return jsonify(charger=charger_json(charger)), 201
 
@@ -341,6 +414,8 @@ def create_app():
         if error:
             return error
         payload = request.get_json(silent=True) or {}
+        if not isinstance(payload, dict):
+            return api_error("Invalid booking details.")
         charger_id = payload.get("charger_id")
         if isinstance(charger_id, bool) or not isinstance(charger_id, int):
             return api_error("Choose a valid charger.")
@@ -368,6 +443,7 @@ def create_app():
             payment_method=payment_method,
         )
         db.session.add(booking)
+        record_attribution(driver.id, "booking", payload)
         try:
             db.session.commit()
         except IntegrityError:
@@ -542,9 +618,9 @@ def create_app():
     def seed_initial_data():
         if Charger.query.count() > 0:
             return
-        host1 = User(name="Vikram Rao", phone="+919876543210", role="host", kyc_verified=True)
-        host2 = User(name="Pooja Sharma", phone="+919812345678", role="host", kyc_verified=True)
-        driver1 = User(name="Arjun Mehta", phone="+919988776655", role="driver", kyc_verified=False)
+        host1 = User(name="Vikram Rao", phone="+919876543210", role="host", kyc_verified=True, password_hash=generate_password_hash("password123"))
+        host2 = User(name="Pooja Sharma", phone="+919812345678", role="host", kyc_verified=True, password_hash=generate_password_hash("password123"))
+        driver1 = User(name="Arjun Mehta", phone="+919988776655", role="driver", kyc_verified=False, password_hash=generate_password_hash("password123"))
         db.session.add_all([host1, host2, driver1])
         db.session.flush()
 
@@ -635,6 +711,10 @@ def create_app():
 
     with app.app_context():
         db.create_all()
+        user_columns = {column["name"] for column in inspect(db.engine).get_columns("user")}
+        if "password_hash" not in user_columns:
+            with db.engine.begin() as connection:
+                connection.execute(text("ALTER TABLE user ADD COLUMN password_hash VARCHAR(255)"))
         seed_initial_data()
 
     return app
@@ -644,4 +724,4 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "5000")), debug=False)
+    app.run(host=os.environ.get("COCHARGE_HOST", "127.0.0.1"), port=int(os.environ.get("PORT", "5000")), debug=False)

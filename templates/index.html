@@ -25,11 +25,19 @@
     .safe-bottom { padding-bottom:max(1rem,env(safe-area-inset-bottom)); }
     .modal-backdrop { background:rgba(15,23,42,.58); }
     .toast { animation:toast-in .18s ease-out; }
+    .modal-panel { animation:modal-in .18s ease-out; }
+    .loading-spinner { width:1rem;height:1rem;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite; }
+    .progress-track { position:fixed;inset:0 0 auto;z-index:4000;height:3px;pointer-events:none; }
+    .progress-bar { height:100%;width:0;background:linear-gradient(90deg,#f59e0b,#ea580c);transition:width .08s linear; }
     @keyframes toast-in { from {opacity:0;transform:translateY(8px)} to {opacity:1;transform:translateY(0)} }
+    @keyframes modal-in { from {opacity:0;transform:translateY(10px) scale(.98)} to {opacity:1;transform:translateY(0) scale(1)} }
+    @keyframes spin { to {transform:rotate(360deg)} }
     @media(max-width:640px) { #map {height:55vh;min-height:340px} }
+    @media(prefers-reduced-motion:reduce) { *,*::before,*::after {scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important} }
   </style>
 </head>
 <body>
+  <div class="progress-track" aria-hidden="true"><div id="scroll-progress" class="progress-bar"></div></div>
   <header class="sticky top-0 z-[1000] border-b border-slate-200 bg-white/95 backdrop-blur">
     <div class="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
       <a href="/" class="flex items-center gap-2.5" aria-label="CoCharge India home">
@@ -40,11 +48,23 @@
       </a>
       <div class="flex items-center gap-2">
         <button id="install-button" class="hidden rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Install app</button>
+        <button id="menu-button" class="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 text-slate-700 sm:hidden" type="button" aria-expanded="false" aria-controls="mobile-nav" aria-label="Open menu">
+          <svg id="menu-icon" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+        </button>
         <button id="profile-button" class="flex items-center gap-2 rounded-xl bg-slate-100 px-3 py-2 text-sm font-bold text-slate-800 hover:bg-slate-200" aria-label="Set up your profile">
           <span id="profile-initial" class="grid h-7 w-7 place-items-center rounded-full bg-slate-900 text-xs text-white">?</span><span id="profile-label" class="hidden sm:inline">Set up profile</span>
         </button>
       </div>
     </div>
+    <nav id="mobile-nav" class="hidden border-t border-slate-100 bg-white px-4 py-3 sm:hidden" aria-label="Mobile navigation">
+      <div class="grid grid-cols-2 gap-2">
+        <a class="rounded-xl bg-slate-50 px-3 py-3 text-sm font-bold text-slate-700" href="#map">Find a charger</a>
+        <button id="mobile-account-link" class="rounded-xl bg-slate-50 px-3 py-3 text-left text-sm font-bold text-slate-700" type="button">My account</button>
+        <button id="mobile-host-link" class="rounded-xl bg-slate-50 px-3 py-3 text-left text-sm font-bold text-slate-700" type="button">Host a charger</button>
+        <button id="mobile-locate-link" class="rounded-xl bg-slate-50 px-3 py-3 text-left text-sm font-bold text-slate-700" type="button">Use my location</button>
+        <button id="mobile-contact-link" class="rounded-xl bg-slate-50 px-3 py-3 text-left text-sm font-bold text-slate-700" type="button">Contact</button>
+      </div>
+    </nav>
   </header>
 
   <main class="mx-auto max-w-7xl px-3 pb-12 pt-4 sm:px-6 sm:pt-6">
@@ -63,7 +83,7 @@
     </section>
 
     <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <div><h2 class="text-xl font-extrabold tracking-tight text-slate-900">Chargers near you</h2><p id="results-caption" class="mt-0.5 text-sm text-slate-500">Use your location to see nearby availability.</p></div>
+      <div><div class="flex flex-wrap items-center gap-2"><h2 class="text-xl font-extrabold tracking-tight text-slate-900">Chargers near you</h2><span id="connection-status" class="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600" role="status" aria-live="polite">Connecting…</span></div><p id="results-caption" class="mt-0.5 text-sm text-slate-500">All available chargers from this CoCharge server.</p></div>
       <div class="flex flex-wrap gap-2">
         <button id="locate-button" class="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-700 shadow-sm hover:border-slate-300">◎ <span class="ml-1">Use my location</span></button>
         <button id="show-all-button" class="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-700 shadow-sm hover:border-slate-300">Show all</button>
@@ -71,7 +91,7 @@
       </div>
     </div>
 
-        <div class="mb-3 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+    <div class="mb-3 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
       <div class="relative min-w-[200px] flex-1">
         <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
         <input id="search-filter" type="text" placeholder="Search locality or charger name..." class="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm focus:border-amber-400 focus:outline-none">
@@ -97,8 +117,21 @@
       <button id="clear-filters-btn" class="hidden rounded-xl bg-slate-100 px-2.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200">Reset</button>
     </div>
 
+    <section class="mb-5 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 sm:p-5" aria-labelledby="listing-heading">
+      <div class="mb-3 flex items-end justify-between gap-3">
+        <div><h2 id="listing-heading" class="text-lg font-extrabold tracking-tight text-slate-900">Available chargers</h2><p class="text-sm text-slate-600">Browse every available listing on this server. Pins may overlap when chargers share a location.</p></div>
+        <span id="charger-list-count" class="shrink-0 rounded-full bg-white px-3 py-1.5 text-xs font-bold text-slate-600 shadow-sm" aria-live="polite">Loading…</span>
+      </div>
+      <div id="charger-list" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-live="polite">
+        <p class="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">Connecting to the charger server…</p>
+      </div>
+    </section>
+
     <section class="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" aria-label="Map of available private EV chargers">
       <div id="map" role="application" aria-label="Interactive charger map"></div>
+      <div id="map-loading" class="absolute inset-0 z-[600] flex items-center justify-center bg-white/75 backdrop-blur-[1px]" role="status" aria-live="polite">
+        <span class="loading-spinner text-amber-600" aria-hidden="true"></span><span class="ml-3 text-sm font-semibold text-slate-700">Loading chargers…</span>
+      </div>
       <div id="map-empty" class="pointer-events-none absolute left-1/2 top-1/2 z-[500] hidden w-[min(88%,360px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white/95 p-5 text-center shadow-lg backdrop-blur">
         <div class="mx-auto mb-2 grid h-11 w-11 place-items-center rounded-full bg-amber-100 text-amber-700">⚡</div>
         <h3 class="font-bold text-slate-900">No listings in this area yet</h3>
@@ -107,10 +140,28 @@
       <div class="absolute bottom-3 left-3 z-[500] rounded-lg bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-slate-600 shadow">Map data © OpenStreetMap</div>
     </section>
 
+    <section id="account-panel" class="mt-5 hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7" aria-labelledby="account-heading">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div><p class="text-xs font-bold uppercase tracking-[.14em] text-amber-700">Your CoCharge account</p><h2 id="account-heading" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">Account details</h2><p class="mt-1 text-sm text-slate-500">Your profile and account actions are collected here.</p></div>
+        <span id="account-role-badge" class="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-bold capitalize text-slate-700"></span>
+      </div>
+      <div class="mt-5 grid gap-3 sm:grid-cols-2">
+        <div class="rounded-xl bg-slate-50 p-4"><p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Name</p><p id="account-name" class="mt-1 break-words font-bold text-slate-900"></p></div>
+        <div class="rounded-xl bg-slate-50 p-4"><p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Mobile</p><p id="account-phone" class="mt-1 font-bold text-slate-900"></p></div>
+        <div class="rounded-xl bg-slate-50 p-4 sm:col-span-2"><p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Account type</p><p id="account-role" class="mt-1 font-bold text-slate-900"></p></div>
+      </div>
+      <div class="mt-5 flex flex-wrap gap-2">
+        <button id="edit-account-button" type="button" class="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800">Edit account</button>
+        <button id="switch-role-button" type="button" class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">Switch mode</button>
+        <button id="account-logout-button" type="button" class="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">Sign out</button>
+      </div>
+    </section>
+
     <section id="host-panel" class="mt-5 hidden grid-cols-1 gap-4 lg:grid-cols-[1.05fr_.95fr]" aria-label="Host dashboard">
       <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div class="mb-4 flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-[.14em] text-amber-700">Host mode</p><h2 class="mt-1 text-xl font-extrabold">List your charger</h2><p class="mt-1 text-sm text-slate-500">Share an available parking spot and set your rate.</p></div><span class="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-800">Your listing</span></div>
         <form id="charger-form" class="grid gap-3 sm:grid-cols-2">
+          <div class="form-status hidden sm:col-span-2" role="status" aria-live="polite"></div>
           <label class="sm:col-span-2"><span class="mb-1 block text-sm font-semibold text-slate-700">Listing name</span><input name="title" maxlength="100" required placeholder="e.g. Covered driveway charger" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"></label>
           <label class="sm:col-span-2"><span class="mb-1 block text-sm font-semibold text-slate-700">Address / access instructions</span><input name="address" maxlength="240" required placeholder="Street, locality, city" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"></label>
           <label><span class="mb-1 block text-sm font-semibold text-slate-700">Latitude</span><input name="lat" id="charger-lat" type="number" step="any" min="6" max="38" required placeholder="Use location" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"></label>
@@ -134,6 +185,14 @@
     </section>
   </main>
 
+  <footer class="border-t border-slate-200 bg-white px-4 py-5 text-center text-xs text-slate-500">
+    <p>CoCharge India · Community EV charging · Last updated <time id="last-updated" datetime="{{ last_updated }}">{{ last_updated }}</time></p>
+    <p class="mt-1">Campaign source tags may be recorded for demo analytics.</p>
+  </footer>
+  <button id="contact-button" class="safe-bottom fixed bottom-5 right-4 z-[1250] inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-3 font-bold text-white shadow-xl transition hover:-translate-y-0.5 hover:bg-slate-800 sm:right-6" type="button" aria-label="Contact CoCharge">
+    <span aria-hidden="true">✉</span><span>Contact</span>
+  </button>
+
   <aside id="charger-sheet" class="fixed inset-x-0 bottom-0 z-[1200] hidden max-h-[82vh] overflow-y-auto rounded-t-3xl border border-slate-200 bg-white shadow-[0_-12px_40px_#0f172a22] sm:bottom-5 sm:left-1/2 sm:w-[min(94vw,440px)] sm:-translate-x-1/2 sm:rounded-2xl" aria-label="Charger details" aria-live="polite">
     <div class="mx-auto mt-2 h-1 w-10 rounded-full bg-slate-200 sm:hidden"></div>
     <div class="p-5">
@@ -148,23 +207,27 @@
   </aside>
 
   <div id="profile-modal" class="modal-backdrop fixed inset-0 z-[2000] hidden items-center justify-center p-4">
-    <section class="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-7" role="dialog" aria-modal="true" aria-labelledby="profile-title">
+    <section class="modal-panel w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-7" role="dialog" aria-modal="true" aria-labelledby="profile-title">
       <div class="mb-5 flex items-center gap-3"><span class="grid h-11 w-11 place-items-center rounded-2xl bg-amber-100 text-amber-700">⚡</span><div><h2 id="profile-title" class="text-xl font-extrabold">Get started with CoCharge</h2><p class="text-sm text-slate-500">Choose how you want to use the network.</p></div></div>
       <form id="profile-form" class="space-y-3">
+        <div class="form-status hidden" role="status" aria-live="polite"></div>
         <label class="block"><span class="mb-1 block text-sm font-semibold">Your name</span><input name="name" required minlength="2" maxlength="80" autocomplete="name" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm" placeholder="Name"></label>
         <label class="block"><span class="mb-1 block text-sm font-semibold">Indian mobile number</span><div class="flex rounded-xl border border-slate-200"><span class="px-3 py-3 text-sm font-semibold text-slate-500">+91</span><input name="phone" type="tel" inputmode="numeric" pattern="[6-9][0-9]{9}" maxlength="10" required autocomplete="tel-national" class="min-w-0 flex-1 rounded-r-xl px-3 py-3 text-sm outline-none" placeholder="10-digit number"></div><span class="mt-1 block text-xs text-slate-500">Prototype profile only; no OTP or phone verification is performed.</span></label>
         <label class="block"><span class="mb-1 block text-sm font-semibold">I want to</span><select name="role" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm"><option value="driver">Find and book a charger</option><option value="host">Host my charger</option></select></label>
-        <div class="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">KYC is not verified in this prototype. Listings and booking reservations are local demo data; UPI checkout does not transfer money.</div>
-        <button class="w-full rounded-xl bg-slate-900 py-3.5 font-extrabold text-white hover:bg-slate-800">Continue</button>
+        <label class="block"><span class="mb-1 block text-sm font-semibold">Password</span><span class="flex rounded-xl border border-slate-200"><input name="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" required class="min-w-0 flex-1 rounded-l-xl px-3 py-3 text-sm outline-none" placeholder="At least 8 characters"><button id="toggle-password" class="rounded-r-xl px-3 text-xs font-bold text-slate-600" type="button" aria-label="Show password" aria-pressed="false">Show</button></span><span class="mt-1 block text-xs text-slate-500">New profiles create a password. Existing profiles sign in with their password; legacy profiles set one on first use.</span></label>
+        <div class="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">KYC is not verified in this prototype. Listings and booking reservations are local demo data; UPI checkout does not transfer money. Campaign source tags may be recorded when you continue.</div>
+        <button id="profile-submit" class="w-full rounded-xl bg-slate-900 py-3.5 font-extrabold text-white hover:bg-slate-800">Continue</button>
         <button type="button" id="cancel-profile" class="hidden w-full py-2 text-sm font-semibold text-slate-500">Cancel</button>
+        <button type="button" id="logout-button" class="hidden w-full py-2 text-sm font-semibold text-slate-500">Sign out</button>
       </form>
     </section>
   </div>
 
   <div id="payment-modal" class="modal-backdrop fixed inset-0 z-[2100] hidden items-center justify-center p-4">
-    <section class="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="payment-title">
+    <section class="modal-panel w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="payment-title">
       <div class="bg-slate-900 p-5 text-white"><div class="flex items-center justify-between"><div><p class="text-xs font-bold uppercase tracking-wider text-amber-300">Secure reservation</p><h2 id="payment-title" class="mt-1 text-xl font-extrabold">Confirm your session</h2></div><button id="close-payment" class="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-xl" aria-label="Close payment">×</button></div><p id="payment-charger" class="mt-2 text-sm text-slate-300"></p></div>
       <form id="payment-form" class="space-y-4 p-5">
+        <div class="form-status hidden" role="status" aria-live="polite"></div>
         <label class="block"><span class="mb-1 block text-sm font-semibold">Energy needed (kWh)</span><input id="energy-input" type="number" value="10" min=".1" max="1000" step=".1" required class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"></label>
         <fieldset><legend class="mb-2 text-sm font-semibold">Choose a UPI app <span class="font-normal text-slate-500">(simulation)</span></legend><div class="grid grid-cols-3 gap-2"><label class="cursor-pointer"><input class="peer sr-only" type="radio" name="payment_method" value="Google Pay" checked><span class="block rounded-xl border border-slate-200 p-3 text-center text-xs font-bold peer-checked:border-amber-500 peer-checked:bg-amber-50">Google Pay</span></label><label class="cursor-pointer"><input class="peer sr-only" type="radio" name="payment_method" value="PhonePe"><span class="block rounded-xl border border-slate-200 p-3 text-center text-xs font-bold peer-checked:border-amber-500 peer-checked:bg-amber-50">PhonePe</span></label><label class="cursor-pointer"><input class="peer sr-only" type="radio" name="payment_method" value="UPI"><span class="block rounded-xl border border-slate-200 p-3 text-center text-xs font-bold peer-checked:border-amber-500 peer-checked:bg-amber-50">Other UPI</span></label></div></fieldset>
         <div class="flex items-center justify-between rounded-xl bg-slate-50 p-4"><span class="text-sm font-semibold text-slate-600">Estimated total</span><strong id="payment-total" class="text-xl font-extrabold">₹0</strong></div>
@@ -219,6 +282,33 @@
     </section>
   </div>
 
+  <div id="confirmation-modal" class="modal-backdrop fixed inset-0 z-[2300] hidden items-center justify-center p-4">
+    <section class="modal-panel w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="confirmation-title" aria-describedby="confirmation-message">
+      <div class="mb-4 grid h-11 w-11 place-items-center rounded-2xl bg-amber-100 text-amber-700" aria-hidden="true">✓</div>
+      <h2 id="confirmation-title" class="text-xl font-extrabold">Please confirm</h2>
+      <p id="confirmation-message" class="mt-2 text-sm leading-6 text-slate-600"></p>
+      <div class="mt-6 flex gap-3"><button id="cancel-confirmation" class="flex-1 rounded-xl border border-slate-200 py-3 font-bold text-slate-700" type="button">Go back</button><button id="accept-confirmation" class="flex-1 rounded-xl bg-amber-400 py-3 font-extrabold text-slate-900" type="button">Confirm</button></div>
+    </section>
+  </div>
+
+  <div id="contact-modal" class="modal-backdrop fixed inset-0 z-[2200] hidden items-center justify-center p-4">
+    <section class="modal-panel w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="contact-title">
+      <div class="flex items-start justify-between gap-3"><div><p class="text-xs font-bold uppercase tracking-wider text-amber-700">We’re here to help</p><h2 id="contact-title" class="mt-1 text-xl font-extrabold">Contact CoCharge</h2></div><button id="close-contact" type="button" class="grid h-9 w-9 place-items-center rounded-full bg-slate-100 text-xl" aria-label="Close contact dialog">×</button></div>
+      <form id="contact-form" class="mt-4 space-y-3">
+        <p class="rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900">Preview only: support hasn’t configured a destination, so this form will not send or store your message.</p>
+        <div class="form-status hidden" role="status" aria-live="polite"></div>
+        <label class="block"><span class="mb-1 block text-sm font-semibold">Your name</span><input name="name" autocomplete="name" maxlength="80" required class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"></label>
+        <label class="block"><span class="mb-1 block text-sm font-semibold">Email</span><input name="email" type="email" autocomplete="email" maxlength="254" required class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"></label>
+        <label class="block"><span class="mb-1 block text-sm font-semibold">Message</span><textarea name="message" rows="3" maxlength="1000" required class="w-full resize-y rounded-xl border border-slate-200 px-3 py-3 text-sm"></textarea></label>
+        <div id="contact-preview" class="hidden rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm leading-5 text-emerald-900" aria-live="polite"></div>
+        <button class="w-full rounded-xl bg-slate-900 py-3 font-extrabold text-white hover:bg-slate-800" type="submit">Preview message (not sent)</button>
+      </form>
+    </section>
+  </div>
+      </form>
+    </section>
+  </div>
+
   <div id="toast-region" class="pointer-events-none fixed bottom-4 left-1/2 z-[3000] w-[min(92vw,440px)] -translate-x-1/2 space-y-2" role="status" aria-live="polite"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
@@ -227,11 +317,43 @@
       "use strict";
       const $ = (selector) => document.querySelector(selector);
       const csrf = { token: "" };
-      const state = { user: null, map: null, markers: [], chargers: [], selected: null, reservedChargerId: null, location: null, rescue: false, installPrompt: null, reviewRating: 0, filterConnector: "", filterMaxPrice: "", filterSearch: "" };
+      const state = { user: null, map: null, markers: [], chargers: [], selected: null, reservedChargerId: null, location: null, rescue: false, installPrompt: null, mapRequests: 0, reviewRating: 0, filterConnector: "", filterMaxPrice: "", filterSearch: "" };
       const modal = (element, show) => { element.classList.toggle("hidden", !show); element.classList.toggle("flex", show); };
       const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[char]));
       const money = (value) => new Intl.NumberFormat("en-IN", { style:"currency", currency:"INR", maximumFractionDigits:2 }).format(value);
       const stars = (rating) => "★".repeat(Math.round(rating)) + "☆".repeat(5 - Math.round(rating));
+      let confirmationResolver = null;
+
+      function setFormState(form, type, message) {
+        const status = form.querySelector(".form-status");
+        if (!status) return;
+        status.className = `form-status rounded-xl p-3 text-sm font-semibold ${type === "error" ? "bg-orange-50 text-orange-800" : "bg-emerald-50 text-emerald-800"}`;
+        status.textContent = message;
+      }
+
+      function clearFormState(form) {
+        const status = form.querySelector(".form-status");
+        if (status) { status.className = "form-status hidden"; status.textContent = ""; }
+      }
+
+      function setButtonLoading(button, loading, label) {
+        if (loading) {
+          button.dataset.idleLabel = button.textContent;
+          button.disabled = true;
+          button.innerHTML = `<span class="loading-spinner inline-block align-[-.15em]" aria-hidden="true"></span><span class="ml-2">${escapeHtml(label)}</span>`;
+          button.setAttribute("aria-busy", "true");
+        } else {
+          button.disabled = false;
+          button.textContent = button.dataset.idleLabel || label;
+          button.removeAttribute("aria-busy");
+          delete button.dataset.idleLabel;
+        }
+      }
+
+      function getUtm() {
+        const keys = ["source", "medium", "campaign", "term", "content"];
+        try {
+          const stored = JSON.parse(sessionStorage.getItem("cocharge-utm") || "{}");
 
       async function api(url, options = {}) {
         const headers = { "Accept":"application/json", ...(options.headers || {}) };
@@ -252,12 +374,23 @@
 
       function setProfile(user) {
         state.user = user;
-        $("#profile-label").textContent = user ? `${user.name} · ${user.role}` : "Set up profile";
+        $("#profile-label").textContent = user ? "My account" : "Set up profile";
+        $("#profile-button").setAttribute("aria-label", user ? "Manage your profile" : "Set up your profile");
         $("#profile-initial").textContent = user ? user.name.trim().charAt(0).toUpperCase() : "?";
+        $("#mobile-account-link").textContent = user ? "My account" : "Sign in";
+        $("#account-panel").classList.toggle("hidden", !user);
+        if (user) {
+          $("#account-name").textContent = user.name;
+          $("#account-phone").textContent = user.phone;
+          $("#account-role").textContent = user.role === "host" ? "Host — list and manage chargers" : "Driver — find and reserve chargers";
+          $("#account-role-badge").textContent = user.role;
+          $("#switch-role-button").textContent = user.role === "host" ? "Switch to driver mode" : "Switch to host mode";
+        }
         $("#host-mode-button").textContent = user && user.role === "host" ? "Driver mode" : "Host a charger";
         $("#host-panel").classList.toggle("hidden", !(user && user.role === "host"));
         $("#host-panel").classList.toggle("grid", Boolean(user && user.role === "host"));
         $("#driver-panel").classList.toggle("hidden", !(user && user.role === "driver"));
+        $("#logout-button").classList.toggle("hidden", !user);
         if (user && user.role === "host") refreshHostDashboard();
         if (user && user.role === "driver") refreshDriverDashboard();
       }
@@ -320,11 +453,28 @@
           state.markers.push(marker);
         });
         showEmpty(chargers.length === 0);
+        $("#charger-list-count").textContent = `${chargers.length} ${chargers.length === 1 ? "charger" : "chargers"}`;
+        $("#charger-list").innerHTML = chargers.length ? chargers.map((charger) => `
+          <article class="flex flex-col justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div class="min-w-0">
+              <div class="flex items-start justify-between gap-2">
+                <h3 class="break-words font-bold text-slate-900">${escapeHtml(charger.title)}</h3>
+                <span class="shrink-0 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-800">Available</span>
+              </div>
+              <p class="mt-1 text-xs font-semibold text-amber-800">${escapeHtml(charger.connector_type)} · ${money(charger.price_per_kwh)} / kWh</p>
+              <p class="mt-2 break-words text-sm text-slate-600">${escapeHtml(charger.address)}</p>
+              <p class="mt-2 text-xs text-slate-500">Hosted by ${escapeHtml(charger.host_name)} · ${escapeHtml(charger.available_hours)}</p>
+              ${Number.isFinite(charger.distance_km) ? `<p class="mt-1 text-xs font-semibold text-slate-500">${charger.distance_km.toFixed(1)} km away</p>` : ""}
+            </div>
+            <button type="button" data-view-charger="${charger.id}" class="w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-slate-800">View on map</button>
+          </article>`).join("") : `<div class="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 sm:col-span-2 lg:col-span-3"><p class="font-bold text-slate-900">${state.rescue ? "No chargers found within 3 km." : "No available chargers on this server right now."}</p><p class="mt-1">Ask the host to publish the listing and leave it marked Available. Everyone must use the same CoCharge server address to share listings.</p>${state.rescue ? '<button id="empty-show-all" class="mt-3 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white" type="button">Show all available chargers</button>' : ""}</div>`;
         const label = state.rescue ? "available chargers within 3 km" : "available chargers";
-        $("#results-caption").textContent = `${chargers.length} ${label}${chargers.length === 1 ? "" : ""}${state.location ? " · sorted by distance" : ""}`;
+        $("#results-caption").textContent = `${chargers.length} ${label}${state.location ? " · sorted by distance" : ""}`;
       }
 
-      async function loadChargers() {
+      async function loadChargers(backgroundRefresh = false) {
+        state.mapRequests += 1;
+        $("#map-loading").classList.remove("hidden");
         const params = new URLSearchParams();
         if (state.location) {
           params.set("lat", state.location.lat);
@@ -336,9 +486,24 @@
         if (state.filterSearch) params.set("q", state.filterSearch);
         try {
           const data = await api(`/api/chargers?${params}`);
+          $("#connection-status").textContent = "Connected to server";
+          $("#connection-status").className = "rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-800";
           renderChargers(data.chargers);
         } catch (error) {
-          toast(error.message, true);
+          $("#connection-status").textContent = "Server connection problem";
+          $("#connection-status").className = "rounded-full bg-red-100 px-2.5 py-1 text-[11px] font-bold text-red-800";
+          if (backgroundRefresh) {
+            $("#charger-list-count").textContent = "Refresh failed";
+            $("#results-caption").textContent = `Could not refresh listings: ${error.message}`;
+            $("#charger-list").innerHTML = `<div class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 sm:col-span-2 lg:col-span-3"><p class="font-bold">Could not reach the charger server</p><p class="mt-1">${escapeHtml(error.message)}</p><p class="mt-1">Check that you’re using the same server address as the host and that the server is running.</p></div>`;
+          } else {
+            $("#charger-list-count").textContent = "Not connected";
+            $("#charger-list").innerHTML = `<div class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 sm:col-span-2 lg:col-span-3"><p class="font-bold">Could not reach the charger server</p><p class="mt-1">${escapeHtml(error.message)}</p><p class="mt-1">Check that you’re using the same server address as the host and that the server is running.</p><button id="retry-chargers" class="mt-3 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white" type="button">Try again</button></div>`;
+            toast(error.message, true);
+          }
+        } finally {
+          state.mapRequests -= 1;
+          $("#map-loading").classList.toggle("hidden", state.mapRequests === 0);
         }
       }
 
@@ -445,33 +610,90 @@
       }
 
       $("#profile-button").addEventListener("click", () => {
+        if (state.user) {
+          $("#account-panel").scrollIntoView({ behavior:"smooth", block:"start" });
+          return;
+        }
+        openProfileEditor();
+      });
+
+      function openProfileEditor() {
         const form = $("#profile-form");
+        clearFormState(form);
         $("#cancel-profile").classList.remove("hidden");
         if (state.user) {
           form.elements.name.value = state.user.name;
           form.elements.phone.value = state.user.phone.replace(/^\+91/, "");
           form.elements.role.value = state.user.role;
+          form.elements.password.value = "";
+        } else {
+          form.reset();
         }
+        $("#toggle-password").textContent = "Show";
+        $("#toggle-password").setAttribute("aria-label", "Show password");
+        $("#toggle-password").setAttribute("aria-pressed", "false");
         modal($("#profile-modal"), true);
-      });
+      }
 
-      $("#cancel-profile").addEventListener("click", () => modal($("#profile-modal"), false));
+      $("#edit-account-button").addEventListener("click", openProfileEditor);
+      $("#switch-role-button").addEventListener("click", () => $("#host-mode-button").click());
+      $("#account-logout-button").addEventListener("click", () => $("#logout-button").click());
+
+      $("#cancel-profile").addEventListener("click", closeProfile);
       $("#profile-form").addEventListener("submit", async (event) => {
         event.preventDefault();
-        const form = new FormData(event.currentTarget);
+        const formElement = event.currentTarget;
+        const form = new FormData(formElement);
         const wasGuest = !state.user;
+        const button = $("#profile-submit");
+        const payload = Object.fromEntries(form);
+        payload.utm = getUtm();
+        clearFormState(formElement);
+        setButtonLoading(button, true, "Signing in…");
         try {
-          const data = await api("/api/session", { method:"POST", body:JSON.stringify(Object.fromEntries(form)) });
+          const data = await api("/api/session", { method:"POST", body:JSON.stringify(payload) });
+          csrf.token = data.csrf_token;
           setProfile(data.user);
-          modal($("#profile-modal"), false);
+          setFormState(formElement, "success", "Your profile is ready.");
+          closeProfile();
           toast(`Welcome, ${data.user.name}.`);
           if (data.user.role === "host") $("#host-panel").scrollIntoView({ behavior:"smooth", block:"start" });
           else if (wasGuest && state.selected) openPayment();
-        } catch (error) { toast(error.message, true); }
+        } catch (error) {
+          setFormState(formElement, "error", error.message);
+          toast(error.message, true);
+        } finally { setButtonLoading(button, false, "Continue"); }
+      });
+
+      $("#logout-button").addEventListener("click", async () => {
+        const button = $("#logout-button");
+        button.disabled = true;
+        try {
+          const data = await api("/api/logout", { method:"POST", body:JSON.stringify({}) });
+          csrf.token = data.csrf_token;
+          setProfile(null);
+          $("#profile-form").reset();
+          closeProfile();
+          toast("You have signed out.");
+        } catch (error) {
+          setFormState($("#profile-form"), "error", error.message);
+          toast(error.message, true);
+        } finally { button.disabled = false; }
+      });
+
+      $("#toggle-password").addEventListener("click", () => {
+        const input = $("#profile-form").elements.password;
+        const visible = input.type === "password";
+        input.type = visible ? "text" : "password";
+        $("#toggle-password").textContent = visible ? "Hide" : "Show";
+        $("#toggle-password").setAttribute("aria-label", visible ? "Hide password" : "Show password");
+        $("#toggle-password").setAttribute("aria-pressed", String(visible));
       });
 
       $("#host-mode-button").addEventListener("click", () => {
         if (!state.user) {
+          clearFormState($("#profile-form"));
+          $("#profile-form").elements.password.value = "";
           $("#cancel-profile").classList.remove("hidden");
           modal($("#profile-modal"), true);
           $("#profile-form").elements.role.value = "host";
@@ -481,6 +703,8 @@
         form.elements.name.value = state.user.name;
         form.elements.phone.value = state.user.phone.replace(/^\+91/, "");
         form.elements.role.value = state.user.role === "host" ? "driver" : "host";
+        form.elements.password.value = "";
+        clearFormState(form);
         $("#cancel-profile").classList.remove("hidden");
         modal($("#profile-modal"), true);
       });
@@ -506,42 +730,61 @@
       $("#payment-form").addEventListener("submit", async (event) => {
         event.preventDefault();
         if (!state.selected) return;
+        const formElement = event.currentTarget;
+        const estimatedTotal = Number($("#energy-input").value) * state.selected.price_per_kwh;
+        const confirmed = await confirmAction("Confirm reservation", `Reserve “${state.selected.title}” for an estimated ${money(estimatedTotal)}? This is a demo; no money will be charged.`, "Reserve charger");
+        if (!confirmed) return;
         const button = $("#confirm-booking");
-        button.disabled = true;
-        button.textContent = "Reserving…";
+        clearFormState(formElement);
+        setButtonLoading(button, true, "Reserving…");
         try {
           const data = await api("/api/book", {
             method:"POST",
             body:JSON.stringify({
               charger_id:state.selected.id,
               energy_kwh:Number($("#energy-input").value),
-              payment_method:new FormData(event.currentTarget).get("payment_method")
+              payment_method:new FormData(formElement).get("payment_method"),
+              utm:getUtm()
             })
           });
+          setFormState(formElement, "success", "Reservation confirmed. No money was charged.");
           modal($("#payment-modal"), false);
           state.reservedChargerId = state.selected.id;
           $("#book-button").textContent = "Reservation confirmed — navigate";
           toast(`Reserved. Estimated total ${money(data.booking.total_amount)}. No money was charged.`);
           await Promise.all([loadChargers(), refreshDriverDashboard()]);
-        } catch (error) { toast(error.message, true); }
-        finally { button.disabled = false; button.textContent = "Confirm simulated payment & reserve"; }
+        } catch (error) {
+          setFormState(formElement, "error", error.message);
+          toast(error.message, true);
+        } finally { setButtonLoading(button, false, "Confirm simulated payment & reserve"); }
       });
 
       $("#charger-form").addEventListener("submit", async (event) => {
         event.preventDefault();
-        const form = new FormData(event.currentTarget);
+        const formElement = event.currentTarget;
+        const form = new FormData(formElement);
         const payload = Object.fromEntries(form);
         payload.lat = Number(payload.lat);
         payload.lng = Number(payload.lng);
         payload.price_per_kwh = Number(payload.price_per_kwh);
+        const confirmed = await confirmAction("Publish this charger?", `${payload.title} will be visible to drivers at ${money(payload.price_per_kwh)} per kWh.`, "Publish listing");
+        if (!confirmed) return;
+        payload.utm = getUtm();
+        const button = formElement.querySelector('[type="submit"]');
+        clearFormState(formElement);
+        setButtonLoading(button, true, "Publishing…");
         try {
           await api("/api/chargers/add", { method:"POST", body:JSON.stringify(payload) });
-          event.currentTarget.reset();
-          event.currentTarget.elements.available_hours.value = "Available now";
+          setFormState(formElement, "success", "Your charger is now listed.");
+          formElement.reset();
+          formElement.elements.available_hours.value = "Available now";
           toast("Your charger is now listed.");
           await Promise.all([loadChargers(), refreshHostDashboard()]);
           $("#map").scrollIntoView({ behavior:"smooth", block:"center" });
-        } catch (error) { toast(error.message, true); }
+        } catch (error) {
+          setFormState(formElement, "error", error.message);
+          toast(error.message, true);
+        } finally { setButtonLoading(button, false, "Publish listing"); }
       });
 
       function fillChargerLocation() {
@@ -705,6 +948,71 @@
         finally { btn.disabled = false; btn.textContent = "Submit review"; }
       });
 
+      $("#charger-list").addEventListener("click", (event) => {
+        if (event.target.closest("#empty-show-all")) {
+          $("#show-all-button").click();
+          return;
+        }
+        if (event.target.closest("#retry-chargers")) {
+          loadChargers();
+          return;
+        }
+        const button = event.target.closest("[data-view-charger]");
+        if (!button) return;
+        const charger = state.chargers.find((item) => item.id === Number(button.dataset.viewCharger));
+        if (!charger) return;
+        state.map.setView([charger.lat, charger.lng], Math.max(state.map.getZoom(), 14), { animate:true });
+        openCharger(charger);
+      });
+
+      $("#menu-button").addEventListener("click", () => toggleMobileMenu($("#menu-button").getAttribute("aria-expanded") !== "true"));
+      $("#mobile-nav").querySelectorAll("a").forEach((link) => link.addEventListener("click", () => toggleMobileMenu(false)));
+      $("#mobile-account-link").addEventListener("click", () => {
+        toggleMobileMenu(false);
+        if (state.user) $("#account-panel").scrollIntoView({ behavior:"smooth", block:"start" });
+        else openProfileEditor();
+      });
+      $("#mobile-host-link").addEventListener("click", () => { toggleMobileMenu(false); $("#host-mode-button").click(); });
+      $("#mobile-locate-link").addEventListener("click", () => { toggleMobileMenu(false); $("#locate-button").click(); });
+      $("#mobile-contact-link").addEventListener("click", () => { toggleMobileMenu(false); openContact(); });
+      $("#contact-button").addEventListener("click", openContact);
+      $("#close-contact").addEventListener("click", () => modal($("#contact-modal"), false));
+      $("#contact-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        const details = Object.fromEntries(new FormData(event.currentTarget));
+        $("#contact-preview").textContent = `Preview for ${details.name} (${details.email}): ${details.message}\n\nThis message was not sent or stored; support contact details are not configured.`;
+        $("#contact-preview").classList.remove("hidden");
+        $("#contact-preview").classList.add("whitespace-pre-wrap");
+        setFormState(event.currentTarget, "success", "Preview ready. This message was not sent or stored.");
+      });
+      $("#accept-confirmation").addEventListener("click", () => closeConfirmation(true));
+      $("#cancel-confirmation").addEventListener("click", () => closeConfirmation(false));
+      $("#confirmation-modal").addEventListener("click", (event) => {
+        if (event.target === $("#confirmation-modal")) closeConfirmation(false);
+      });
+      document.querySelectorAll("form").forEach((form) => {
+        form.addEventListener("input", () => clearFormState(form));
+      });
+      window.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        if (confirmationResolver) closeConfirmation(false);
+        else if (!$("#contact-modal").classList.contains("hidden")) modal($("#contact-modal"), false);
+        else if (!$("#payment-modal").classList.contains("hidden")) modal($("#payment-modal"), false);
+        else if (!$("#profile-modal").classList.contains("hidden")) closeProfile();
+        else toggleMobileMenu(false);
+      });
+      let progressFrame = 0;
+      window.addEventListener("scroll", () => {
+        if (progressFrame) return;
+        progressFrame = window.requestAnimationFrame(() => { progressFrame = 0; updateScrollProgress(); });
+      }, { passive:true });
+      window.addEventListener("resize", updateScrollProgress);
+
+      const lastUpdated = $("#last-updated");
+      lastUpdated.textContent = new Intl.DateTimeFormat(undefined, { dateStyle:"medium" }).format(new Date(lastUpdated.dateTime));
+      captureUtm();
+      updateScrollProgress();
+
       window.addEventListener("beforeinstallprompt", (event) => {
         event.preventDefault();
         state.installPrompt = event;
@@ -726,6 +1034,12 @@
           setProfile(data.user);
         } catch (error) { toast(error.message, true); }
         await loadChargers();
+        window.setInterval(() => {
+          if (document.visibilityState === "visible" && state.mapRequests === 0) loadChargers(true);
+        }, 15000);
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible" && state.mapRequests === 0) loadChargers(true);
+        });
         if ("serviceWorker" in navigator) {
           navigator.serviceWorker.register("/static/sw.js").catch(() => toast("Offline support could not be enabled in this browser.", true));
         }
