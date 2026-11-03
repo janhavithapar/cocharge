@@ -71,6 +71,32 @@
       </div>
     </div>
 
+        <div class="mb-3 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div class="relative min-w-[200px] flex-1">
+        <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
+        <input id="search-filter" type="text" placeholder="Search locality or charger name..." class="w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm focus:border-amber-400 focus:outline-none">
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-xs font-semibold text-slate-500">Connector:</span>
+        <select id="connector-filter" class="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700 focus:outline-none">
+          <option value="">All Connectors</option>
+          <option value="Type 2">Type 2</option>
+          <option value="CCS2">CCS2</option>
+        </select>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <span class="text-xs font-semibold text-slate-500">Max Price:</span>
+        <select id="price-filter" class="rounded-xl border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-slate-700 focus:outline-none">
+          <option value="">Any Price</option>
+          <option value="14">≤ ₹14 / kWh</option>
+          <option value="16">≤ ₹16 / kWh</option>
+          <option value="18">≤ ₹18 / kWh</option>
+          <option value="20">≤ ₹20 / kWh</option>
+        </select>
+      </div>
+      <button id="clear-filters-btn" class="hidden rounded-xl bg-slate-100 px-2.5 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200">Reset</button>
+    </div>
+
     <section class="relative overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" aria-label="Map of available private EV chargers">
       <div id="map" role="application" aria-label="Interactive charger map"></div>
       <div id="map-empty" class="pointer-events-none absolute left-1/2 top-1/2 z-[500] hidden w-[min(88%,360px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white/95 p-5 text-center shadow-lg backdrop-blur">
@@ -113,8 +139,9 @@
     <div class="p-5">
       <div class="flex items-start justify-between gap-3"><div><p id="sheet-connector" class="text-xs font-bold uppercase tracking-wider text-amber-700"></p><h2 id="sheet-title" class="mt-1 text-xl font-extrabold"></h2></div><button id="close-sheet" class="grid h-9 w-9 place-items-center rounded-full bg-slate-100 text-lg text-slate-700" aria-label="Close charger details">×</button></div>
       <p id="sheet-address" class="mt-2 text-sm leading-5 text-slate-600"></p>
-      <div class="mt-4 grid grid-cols-2 gap-2"><div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-500">Host</p><p id="sheet-host" class="mt-1 font-bold"></p></div><div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-500">Price</p><p id="sheet-price" class="mt-1 font-extrabold"></p></div><div class="col-span-2 rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-500">Availability</p><p id="sheet-hours" class="mt-1 font-semibold"></p></div></div>
+      <div class="mt-4 grid grid-cols-2 gap-2"><div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-500">Host</p><p id="sheet-host" class="mt-1 font-bold"></p></div><div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-500">Price</p><p id="sheet-price" class="mt-1 font-extrabold"></p></div><div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-500">Availability</p><p id="sheet-hours" class="mt-1 font-semibold"></p></div><div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-500">Rating</p><p id="sheet-rating" class="mt-1 font-bold"></p></div></div>
       <div id="distance-note" class="mt-3 text-xs font-semibold text-slate-500"></div>
+      <div id="sheet-reviews" class="mt-4 hidden"><h3 class="text-sm font-bold text-slate-700">Recent reviews</h3><div id="sheet-reviews-list" class="mt-2 space-y-2"></div></div>
       <button id="navigate-button" class="mt-4 w-full rounded-xl border border-slate-200 py-3 font-bold text-slate-700 hover:bg-slate-50">Open directions</button>
       <button id="book-button" class="mt-2 w-full rounded-xl bg-amber-400 py-3.5 font-extrabold text-slate-900 shadow-sm hover:bg-amber-300">Book &amp; navigate now</button>
     </div>
@@ -147,6 +174,51 @@
     </section>
   </div>
 
+  <div id="review-modal" class="modal-backdrop fixed inset-0 z-[2200] hidden items-center justify-center p-4">
+    <section class="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="review-title">
+      <div class="bg-slate-900 p-5 text-white"><div class="flex items-center justify-between"><div><p class="text-xs font-bold uppercase tracking-wider text-amber-300">Rate your experience</p><h2 id="review-title" class="mt-1 text-xl font-extrabold">Leave a review</h2></div><button id="close-review" class="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-xl" aria-label="Close review">×</button></div><p id="review-charger-name" class="mt-2 text-sm text-slate-300"></p></div>
+      <form id="review-form" class="space-y-4 p-5">
+        <input type="hidden" id="review-booking-id" value="">
+        <fieldset><legend class="mb-2 text-sm font-semibold">Your rating</legend>
+          <div id="star-picker" class="flex gap-1">
+            <button type="button" data-star="1" class="star-btn text-3xl text-slate-300 transition hover:text-amber-400" aria-label="1 star">★</button>
+            <button type="button" data-star="2" class="star-btn text-3xl text-slate-300 transition hover:text-amber-400" aria-label="2 stars">★</button>
+            <button type="button" data-star="3" class="star-btn text-3xl text-slate-300 transition hover:text-amber-400" aria-label="3 stars">★</button>
+            <button type="button" data-star="4" class="star-btn text-3xl text-slate-300 transition hover:text-amber-400" aria-label="4 stars">★</button>
+            <button type="button" data-star="5" class="star-btn text-3xl text-slate-300 transition hover:text-amber-400" aria-label="5 stars">★</button>
+          </div>
+        </fieldset>
+        <label class="block"><span class="mb-1 block text-sm font-semibold">Comment <span class="font-normal text-slate-500">(optional)</span></span><textarea id="review-comment" maxlength="500" rows="3" placeholder="How was your charging experience?" class="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"></textarea></label>
+        <button id="submit-review" type="submit" class="w-full rounded-xl bg-amber-400 py-3.5 font-extrabold text-slate-900 hover:bg-amber-300">Submit review</button>
+      </form>
+    </section>
+  </div>
+
+  <div id="edit-charger-modal" class="modal-backdrop fixed inset-0 z-[2200] hidden items-center justify-center p-4">
+    <section class="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl" role="dialog" aria-modal="true" aria-labelledby="edit-charger-title">
+      <div class="bg-slate-900 p-5 text-white">
+        <div class="flex items-center justify-between">
+          <div>
+            <p class="text-xs font-bold uppercase tracking-wider text-amber-300">Manage listing</p>
+            <h2 id="edit-charger-title" class="mt-1 text-xl font-extrabold">Edit charger</h2>
+          </div>
+          <button id="close-edit-charger" class="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-xl" aria-label="Close edit">×</button>
+        </div>
+      </div>
+      <form id="edit-charger-form" class="space-y-3 p-5">
+        <input type="hidden" id="edit-charger-id" value="">
+        <label class="block"><span class="mb-1 block text-sm font-semibold text-slate-700">Listing name</span><input id="edit-title" maxlength="100" required class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"></label>
+        <label class="block"><span class="mb-1 block text-sm font-semibold text-slate-700">Address / instructions</span><input id="edit-address" maxlength="240" required class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"></label>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="block"><span class="mb-1 block text-sm font-semibold text-slate-700">Connector</span><select id="edit-connector" class="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"><option value="Type 2">Type 2</option><option value="CCS2">CCS2</option></select></label>
+          <label class="block"><span class="mb-1 block text-sm font-semibold text-slate-700">Price (₹/kWh)</span><input id="edit-price" type="number" min="0.1" max="500" step="0.1" required class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"></label>
+        </div>
+        <label class="block"><span class="mb-1 block text-sm font-semibold text-slate-700">Available hours</span><input id="edit-hours" maxlength="100" required class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm"></label>
+        <button id="save-edit-charger" type="submit" class="w-full rounded-xl bg-amber-400 py-3.5 font-extrabold text-slate-900 hover:bg-amber-300">Save changes</button>
+      </form>
+    </section>
+  </div>
+
   <div id="toast-region" class="pointer-events-none fixed bottom-4 left-1/2 z-[3000] w-[min(92vw,440px)] -translate-x-1/2 space-y-2" role="status" aria-live="polite"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
           integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
@@ -155,10 +227,11 @@
       "use strict";
       const $ = (selector) => document.querySelector(selector);
       const csrf = { token: "" };
-      const state = { user: null, map: null, markers: [], chargers: [], selected: null, reservedChargerId: null, location: null, rescue: false, installPrompt: null };
+      const state = { user: null, map: null, markers: [], chargers: [], selected: null, reservedChargerId: null, location: null, rescue: false, installPrompt: null, reviewRating: 0, filterConnector: "", filterMaxPrice: "", filterSearch: "" };
       const modal = (element, show) => { element.classList.toggle("hidden", !show); element.classList.toggle("flex", show); };
       const escapeHtml = (value) => String(value).replace(/[&<>"']/g, (char) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[char]));
       const money = (value) => new Intl.NumberFormat("en-IN", { style:"currency", currency:"INR", maximumFractionDigits:2 }).format(value);
+      const stars = (rating) => "★".repeat(Math.round(rating)) + "☆".repeat(5 - Math.round(rating));
 
       async function api(url, options = {}) {
         const headers = { "Accept":"application/json", ...(options.headers || {}) };
@@ -205,7 +278,7 @@
         $("#map-empty").classList.toggle("hidden", !show);
       }
 
-      function openCharger(charger) {
+      async function openCharger(charger) {
         state.selected = charger;
         if (state.reservedChargerId !== charger.id) state.reservedChargerId = null;
         $("#sheet-title").textContent = charger.title;
@@ -214,12 +287,23 @@
         $("#sheet-host").textContent = `${charger.host_name}${charger.host_kyc_verified ? " · KYC verified" : " · Not KYC verified"}`;
         $("#sheet-price").textContent = `${money(charger.price_per_kwh)} / kWh`;
         $("#sheet-hours").textContent = charger.available_hours;
+        $("#sheet-rating").innerHTML = charger.avg_rating ? `<span class="text-amber-500">${stars(charger.avg_rating)}</span> ${charger.avg_rating} <span class="text-xs font-normal text-slate-500">(${charger.review_count})</span>` : '<span class="text-slate-400">No reviews yet</span>';
         $("#distance-note").textContent = Number.isFinite(charger.distance_km) ? `${charger.distance_km.toFixed(1)} km from your location` : "Distance unavailable until you share your location.";
         $("#book-button").disabled = Boolean(state.user && state.user.role === "host" && state.user.id === charger.host_id);
         $("#book-button").textContent = $("#book-button").disabled ? "This is your listing" : state.reservedChargerId === charger.id ? "Reservation confirmed — navigate" : "Book & navigate now";
         $("#book-button").classList.toggle("opacity-50", $("#book-button").disabled);
         $("#charger-sheet").classList.remove("hidden");
         if (window.innerWidth < 640) $("#charger-sheet").scrollIntoView({ behavior:"smooth", block:"end" });
+        try {
+          const data = await api(`/api/chargers/${charger.id}/reviews`);
+          const container = $("#sheet-reviews-list");
+          if (data.reviews.length) {
+            $("#sheet-reviews").classList.remove("hidden");
+            container.innerHTML = data.reviews.slice(0, 5).map(r => `<div class="rounded-xl bg-slate-50 p-3"><div class="flex items-center justify-between"><span class="text-sm font-bold">${escapeHtml(r.driver_name)}</span><span class="text-amber-500 text-sm">${stars(r.rating)}</span></div>${r.comment ? `<p class="mt-1 text-xs text-slate-600">${escapeHtml(r.comment)}</p>` : ''}</div>`).join('');
+          } else {
+            $("#sheet-reviews").classList.add("hidden");
+          }
+        } catch (_) { $("#sheet-reviews").classList.add("hidden"); }
       }
 
       function renderChargers(chargers) {
@@ -247,6 +331,9 @@
           params.set("lng", state.location.lng);
           if (state.rescue) params.set("radius_km", "3");
         }
+        if (state.filterConnector) params.set("connector_type", state.filterConnector);
+        if (state.filterMaxPrice) params.set("max_price", state.filterMaxPrice);
+        if (state.filterSearch) params.set("q", state.filterSearch);
         try {
           const data = await api(`/api/chargers?${params}`);
           renderChargers(data.chargers);
@@ -311,8 +398,21 @@
           $("#earnings-total").textContent = money(bookingData.completed_earnings);
           $("#host-listings").innerHTML = listingData.chargers.length ? listingData.chargers.map((charger) => `
             <article class="rounded-xl border border-slate-200 p-3">
-              <div class="flex items-start justify-between gap-3"><div><h3 class="font-bold">${escapeHtml(charger.title)}</h3><p class="mt-1 text-xs text-slate-500">${escapeHtml(charger.connector_type)} · ${money(charger.price_per_kwh)}/kWh</p><p class="mt-1 text-xs text-slate-500">${escapeHtml(charger.address)}</p></div>
-              <button data-availability="${charger.id}" data-next="${!charger.is_available}" class="shrink-0 rounded-lg px-3 py-2 text-xs font-bold ${charger.is_available ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}">${charger.is_available ? "Available" : "Paused"}</button></div>
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h3 class="font-bold">${escapeHtml(charger.title)}</h3>
+                  <p class="mt-1 text-xs text-slate-500">${escapeHtml(charger.connector_type)} · ${money(charger.price_per_kwh)}/kWh · ${escapeHtml(charger.available_hours)}</p>
+                  <p class="mt-1 text-xs text-slate-500">${escapeHtml(charger.address)}</p>
+                  ${charger.avg_rating ? `<p class="mt-1 text-xs font-semibold text-amber-600">⭐ ${charger.avg_rating} (${charger.review_count} review${charger.review_count === 1 ? '' : 's'})</p>` : '<p class="mt-1 text-xs text-slate-400">No reviews yet</p>'}
+                </div>
+                <div class="flex flex-col items-end gap-1.5 shrink-0">
+                  <button data-availability="${charger.id}" data-next="${!charger.is_available}" class="rounded-lg px-2.5 py-1.5 text-xs font-bold ${charger.is_available ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-700"}">${charger.is_available ? "Available" : "Paused"}</button>
+                  <div class="flex gap-1">
+                    <button data-edit-charger='${escapeHtml(JSON.stringify(charger))}' class="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-bold text-slate-700 hover:bg-slate-100">Edit</button>
+                    <button data-delete-charger="${charger.id}" class="rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-bold text-red-700 hover:bg-red-100">Delete</button>
+                  </div>
+                </div>
+              </div>
             </article>`).join("") : '<p class="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No charger listed yet. Add your first listing above.</p>';
           const incoming = bookingData.bookings;
           $("#host-bookings").innerHTML = incoming.length ? incoming.map((booking) => `
@@ -331,9 +431,13 @@
           const data = await api("/api/bookings");
           $("#driver-bookings").innerHTML = data.bookings.length ? data.bookings.map((booking) => `
             <article class="rounded-xl border border-slate-200 p-4">
-              <div class="flex items-start justify-between gap-2"><div><h3 class="font-bold">${escapeHtml(booking.charger_title)}</h3><p class="mt-1 text-xs text-slate-500">${escapeHtml(booking.address)}</p></div><span class="rounded-full ${booking.status === "active" ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-600"} px-2.5 py-1 text-xs font-bold">${escapeHtml(booking.status)}</span></div>
+              <div class="flex items-start justify-between gap-2"><div><h3 class="font-bold">${escapeHtml(booking.charger_title)}</h3><p class="mt-1 text-xs text-slate-500">${escapeHtml(booking.address)}</p></div><span class="rounded-full ${booking.status === "active" ? "bg-amber-100 text-amber-900" : booking.status === "cancelled" ? "bg-red-100 text-red-800" : "bg-slate-100 text-slate-600"} px-2.5 py-1 text-xs font-bold">${escapeHtml(booking.status)}</span></div>
               <p class="mt-3 text-sm text-slate-600">${booking.energy_kwh} kWh · ${escapeHtml(booking.payment_method)} (simulated)</p><p class="mt-1 font-extrabold">${money(booking.total_amount)}</p>
-              ${booking.status === "active" ? `<a class="mt-3 inline-flex rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white" href="https://www.google.com/maps/dir/?api=1&amp;destination=${booking.lat},${booking.lng}" target="_blank" rel="noopener noreferrer">Open directions</a>` : ""}
+              ${booking.has_review ? `<div class="mt-2 rounded-lg bg-amber-50 p-2"><span class="text-amber-500 text-sm">${stars(booking.review.rating)}</span>${booking.review.comment ? ` <span class="text-xs text-slate-600">— ${escapeHtml(booking.review.comment)}</span>` : ''}</div>` : ''}
+              <div class="mt-3 flex flex-wrap gap-2">
+                ${booking.status === "active" ? `<a class="inline-flex rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white" href="https://www.google.com/maps/dir/?api=1&amp;destination=${booking.lat},${booking.lng}" target="_blank" rel="noopener noreferrer">Open directions</a><button data-cancel="${booking.id}" class="inline-flex rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:bg-red-100">Cancel booking</button>` : ''}
+                ${booking.status === "completed" && !booking.has_review ? `<button data-review="${booking.id}" data-charger-name="${escapeHtml(booking.charger_title)}" class="inline-flex rounded-lg bg-amber-400 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-amber-300">⭐ Leave a review</button>` : ''}
+              </div>
             </article>`).join("") : '<p class="text-sm text-slate-500">No reservations yet. Select an available charger on the map to get started.</p>';
         } catch (error) {
           toast(error.message, true);
@@ -452,6 +556,8 @@
       $("#host-panel").addEventListener("click", async (event) => {
         const availability = event.target.closest("[data-availability]");
         const complete = event.target.closest("[data-complete]");
+        const editBtn = event.target.closest("[data-edit-charger]");
+        const deleteBtn = event.target.closest("[data-delete-charger]");
         try {
           if (availability) {
             const data = await api(`/api/chargers/${availability.dataset.availability}/availability`, {
@@ -465,7 +571,138 @@
             toast("Booking marked complete.");
             await refreshHostDashboard();
           }
+          if (editBtn) {
+            const charger = JSON.parse(editBtn.dataset.editCharger);
+            $("#edit-charger-id").value = charger.id;
+            $("#edit-title").value = charger.title;
+            $("#edit-address").value = charger.address;
+            $("#edit-connector").value = charger.connector_type;
+            $("#edit-price").value = charger.price_per_kwh;
+            $("#edit-hours").value = charger.available_hours;
+            modal($("#edit-charger-modal"), true);
+          }
+          if (deleteBtn) {
+            if (!confirm("Delete this charger listing? This cannot be undone.")) return;
+            await api(`/api/chargers/${deleteBtn.dataset.deleteCharger}`, { method:"DELETE" });
+            toast("Charger listing deleted.");
+            await Promise.all([refreshHostDashboard(), loadChargers()]);
+          }
         } catch (error) { toast(error.message, true); }
+      });
+
+      $("#close-edit-charger").addEventListener("click", () => modal($("#edit-charger-modal"), false));
+      $("#edit-charger-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const chargerId = $("#edit-charger-id").value;
+        const btn = $("#save-edit-charger");
+        btn.disabled = true;
+        btn.textContent = "Saving…";
+        try {
+          await api(`/api/chargers/${chargerId}`, {
+            method: "PATCH",
+            body: JSON.stringify({
+              title: $("#edit-title").value.trim(),
+              address: $("#edit-address").value.trim(),
+              connector_type: $("#edit-connector").value,
+              price_per_kwh: Number($("#edit-price").value),
+              available_hours: $("#edit-hours").value.trim(),
+            })
+          });
+          modal($("#edit-charger-modal"), false);
+          toast("Charger details updated!");
+          await Promise.all([refreshHostDashboard(), loadChargers()]);
+        } catch (error) { toast(error.message, true); }
+        finally { btn.disabled = false; btn.textContent = "Save changes"; }
+      });
+
+      // Search & filter listeners
+      let searchTimeout = null;
+      $("#search-filter").addEventListener("input", (e) => {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+          state.filterSearch = e.target.value.trim();
+          updateClearBtn();
+          loadChargers();
+        }, 300);
+      });
+      $("#connector-filter").addEventListener("change", (e) => {
+        state.filterConnector = e.target.value;
+        updateClearBtn();
+        loadChargers();
+      });
+      $("#price-filter").addEventListener("change", (e) => {
+        state.filterMaxPrice = e.target.value;
+        updateClearBtn();
+        loadChargers();
+      });
+      function updateClearBtn() {
+        const hasFilter = !!(state.filterSearch || state.filterConnector || state.filterMaxPrice);
+        $("#clear-filters-btn").classList.toggle("hidden", !hasFilter);
+      }
+      $("#clear-filters-btn").addEventListener("click", () => {
+        state.filterSearch = "";
+        state.filterConnector = "";
+        state.filterMaxPrice = "";
+        $("#search-filter").value = "";
+        $("#connector-filter").value = "";
+        $("#price-filter").value = "";
+        updateClearBtn();
+        loadChargers();
+      });
+
+      // Cancel booking handler (driver panel)
+      $("#driver-panel").addEventListener("click", async (event) => {
+        const cancelBtn = event.target.closest("[data-cancel]");
+        const reviewBtn = event.target.closest("[data-review]");
+        if (cancelBtn) {
+          if (!confirm("Cancel this booking? The charger will become available again.")) return;
+          try {
+            await api(`/api/bookings/${cancelBtn.dataset.cancel}/cancel`, { method:"POST", body:JSON.stringify({}) });
+            state.reservedChargerId = null;
+            toast("Booking cancelled.");
+            await Promise.all([refreshDriverDashboard(), loadChargers()]);
+          } catch (error) { toast(error.message, true); }
+        }
+        if (reviewBtn) {
+          $("#review-booking-id").value = reviewBtn.dataset.review;
+          $("#review-charger-name").textContent = reviewBtn.dataset.chargerName;
+          state.reviewRating = 0;
+          document.querySelectorAll(".star-btn").forEach(b => b.classList.replace("text-amber-400", "text-slate-300"));
+          $("#review-comment").value = "";
+          modal($("#review-modal"), true);
+        }
+      });
+
+      // Star picker interaction
+      $("#star-picker").addEventListener("click", (event) => {
+        const btn = event.target.closest("[data-star]");
+        if (!btn) return;
+        state.reviewRating = Number(btn.dataset.star);
+        document.querySelectorAll(".star-btn").forEach(b => {
+          const val = Number(b.dataset.star);
+          b.classList.toggle("text-amber-400", val <= state.reviewRating);
+          b.classList.toggle("text-slate-300", val > state.reviewRating);
+        });
+      });
+
+      // Submit review
+      $("#close-review").addEventListener("click", () => modal($("#review-modal"), false));
+      $("#review-form").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (state.reviewRating < 1) { toast("Tap a star to set your rating.", true); return; }
+        const btn = $("#submit-review");
+        btn.disabled = true;
+        btn.textContent = "Submitting…";
+        try {
+          await api(`/api/bookings/${$("#review-booking-id").value}/review`, {
+            method:"POST",
+            body:JSON.stringify({ rating: state.reviewRating, comment: $("#review-comment").value.trim() })
+          });
+          modal($("#review-modal"), false);
+          toast("Thanks for your review!");
+          await refreshDriverDashboard();
+        } catch (error) { toast(error.message, true); }
+        finally { btn.disabled = false; btn.textContent = "Submit review"; }
       });
 
       window.addEventListener("beforeinstallprompt", (event) => {

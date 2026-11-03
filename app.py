@@ -37,18 +37,30 @@ class Charger(db.Model):
     available_hours = db.Column(db.String(100), nullable=False, default="Available now")
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     bookings = db.relationship("Booking", backref="charger", lazy=True)
+    reviews = db.relationship("Review", backref="charger", lazy=True)
 
 
 class Booking(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     charger_id = db.Column(db.Integer, db.ForeignKey("charger.id"), nullable=False, index=True)
     driver_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
-    status = db.Column(db.String(12), nullable=False, default="active")
+    status = db.Column(db.String(20), nullable=False, default="active")
     total_amount = db.Column(db.Float, nullable=False)
     energy_kwh = db.Column(db.Float, nullable=False)
     payment_method = db.Column(db.String(20), nullable=False)
     timestamp = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     driver = db.relationship("User", foreign_keys=[driver_id])
+    review = db.relationship("Review", backref="booking", uselist=False, lazy=True)
+
+
+class Review(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    booking_id = db.Column(db.Integer, db.ForeignKey("booking.id"), nullable=False, unique=True)
+    charger_id = db.Column(db.Integer, db.ForeignKey("charger.id"), nullable=False, index=True)
+    driver_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    rating = db.Column(db.Integer, nullable=False)
+    comment = db.Column(db.String(500), nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
 
 
 Index(
@@ -138,6 +150,8 @@ def create_app():
         return number
 
     def charger_json(charger, distance_km=None):
+        reviews = Review.query.filter_by(charger_id=charger.id).all()
+        avg_rating = round(sum(r.rating for r in reviews) / len(reviews), 1) if reviews else None
         data = {
             "id": charger.id,
             "host_id": charger.host_id,
@@ -151,13 +165,24 @@ def create_app():
             "available_hours": charger.available_hours,
             "host_name": charger.host.name,
             "host_kyc_verified": charger.host.kyc_verified,
+            "avg_rating": avg_rating,
+            "review_count": len(reviews),
         }
         if distance_km is not None:
             data["distance_km"] = round(distance_km, 2)
         return data
 
-    def booking_json(booking):
+    def review_json(review):
         return {
+            "id": review.id,
+            "rating": review.rating,
+            "comment": review.comment,
+            "driver_name": review.booking.driver.name,
+            "created_at": review.created_at.isoformat(),
+        }
+
+    def booking_json(booking):
+        data = {
             "id": booking.id,
             "charger_id": booking.charger_id,
             "charger_title": booking.charger.title,
@@ -171,7 +196,11 @@ def create_app():
             "timestamp": booking.timestamp.isoformat(),
             "driver_name": booking.driver.name,
             "host_name": booking.charger.host.name,
+            "has_review": booking.review is not None,
         }
+        if booking.review:
+            data["review"] = review_json(booking.review)
+        return data
 
     @app.get("/api/session")
     def get_session():
@@ -224,6 +253,10 @@ def create_app():
         lat = request.args.get("lat", type=float)
         lng = request.args.get("lng", type=float)
         radius = request.args.get("radius_km", type=float)
+        connector_type = request.args.get("connector_type")
+        max_price = request.args.get("max_price", type=float)
+        search_query = request.args.get("q", "").strip().lower()
+
         if (lat is None) != (lng is None):
             return api_error("Provide both latitude and longitude.")
         if lat is not None and (not 6.0 <= lat <= 38.0 or not 68.0 <= lng <= 98.0):
@@ -236,8 +269,16 @@ def create_app():
             Charger.is_available.is_(True),
             ~Charger.id.in_(active_booking_ids),
         )
+        if connector_type and connector_type in {"Type 2", "CCS2"}:
+            query = query.filter(Charger.connector_type == connector_type)
+        if max_price is not None and max_price > 0:
+            query = query.filter(Charger.price_per_kwh <= max_price)
+
         results = []
         for charger in query.all():
+            if search_query:
+                if search_query not in charger.title.lower() and search_query not in charger.address.lower():
+                    continue
             distance = None
             if lat is not None and lng is not None:
                 from math import asin, cos, radians, sin, sqrt
@@ -371,6 +412,58 @@ def create_app():
         db.session.commit()
         return jsonify(booking=booking_json(booking))
 
+    @app.post("/api/bookings/<int:booking_id>/cancel")
+    def cancel_booking(booking_id):
+        driver, error = require_role("driver")
+        if error:
+            return error
+        booking = db.session.get(Booking, booking_id)
+        if booking is None or booking.driver_id != driver.id:
+            return api_error("Booking not found.", 404)
+        if booking.status != "active":
+            return api_error("Only active bookings can be cancelled.", 409)
+        booking.status = "cancelled"
+        db.session.commit()
+        return jsonify(booking=booking_json(booking))
+
+    @app.post("/api/bookings/<int:booking_id>/review")
+    def review_booking(booking_id):
+        driver, error = require_role("driver")
+        if error:
+            return error
+        booking = db.session.get(Booking, booking_id)
+        if booking is None or booking.driver_id != driver.id:
+            return api_error("Booking not found.", 404)
+        if booking.status != "completed":
+            return api_error("You can only review completed bookings.", 400)
+        if booking.review is not None:
+            return api_error("You have already reviewed this booking.", 409)
+        payload = request.get_json(silent=True) or {}
+        rating = payload.get("rating")
+        if not isinstance(rating, int) or not 1 <= rating <= 5:
+            return api_error("Rating must be between 1 and 5.")
+        comment = str(payload.get("comment", "")).strip()
+        if len(comment) > 500:
+            return api_error("Comment must be 500 characters or less.")
+        review = Review(
+            booking_id=booking.id,
+            charger_id=booking.charger_id,
+            driver_id=driver.id,
+            rating=rating,
+            comment=comment,
+        )
+        db.session.add(review)
+        db.session.commit()
+        return jsonify(review=review_json(review)), 201
+
+    @app.get("/api/chargers/<int:charger_id>/reviews")
+    def get_charger_reviews(charger_id):
+        charger = db.session.get(Charger, charger_id)
+        if charger is None:
+            return api_error("Charger not found.", 404)
+        reviews = Review.query.filter_by(charger_id=charger_id).order_by(Review.created_at.desc()).limit(50).all()
+        return jsonify(reviews=[review_json(r) for r in reviews])
+
     @app.post("/api/chargers/<int:charger_id>/availability")
     def toggle_availability(charger_id):
         host, error = require_role("host")
@@ -386,6 +479,59 @@ def create_app():
         db.session.commit()
         return jsonify(charger=charger_json(charger))
 
+    @app.patch("/api/chargers/<int:charger_id>")
+    def update_charger(charger_id):
+        host, error = require_role("host")
+        if error:
+            return error
+        charger = db.session.get(Charger, charger_id)
+        if charger is None or charger.host_id != host.id:
+            return api_error("Charger not found.", 404)
+        payload = request.get_json(silent=True) or {}
+        if "title" in payload:
+            title = str(payload["title"]).strip()
+            if not 3 <= len(title) <= 100:
+                return api_error("Charger name must be between 3 and 100 characters.")
+            charger.title = title
+        if "address" in payload:
+            address = str(payload["address"]).strip()
+            if not 5 <= len(address) <= 240:
+                return api_error("Enter an address between 5 and 240 characters.")
+            charger.address = address
+        if "connector_type" in payload:
+            if payload["connector_type"] not in {"Type 2", "CCS2"}:
+                return api_error("Connector type must be Type 2 or CCS2.")
+            charger.connector_type = payload["connector_type"]
+        if "price_per_kwh" in payload:
+            price = valid_number(payload["price_per_kwh"], 0.1, 500.0)
+            if price is None:
+                return api_error("Price must be between ₹0.1 and ₹500.")
+            charger.price_per_kwh = price
+        if "available_hours" in payload:
+            hours = str(payload["available_hours"]).strip()
+            if not hours:
+                return api_error("Available hours cannot be empty.")
+            charger.available_hours = hours
+        db.session.commit()
+        return jsonify(charger=charger_json(charger))
+
+    @app.delete("/api/chargers/<int:charger_id>")
+    def delete_charger(charger_id):
+        host, error = require_role("host")
+        if error:
+            return error
+        charger = db.session.get(Charger, charger_id)
+        if charger is None or charger.host_id != host.id:
+            return api_error("Charger not found.", 404)
+        active_booking = Booking.query.filter_by(charger_id=charger.id, status="active").first()
+        if active_booking:
+            return api_error("Cannot delete a charger with an active booking.", 409)
+        Review.query.filter_by(charger_id=charger.id).delete()
+        Booking.query.filter_by(charger_id=charger.id).delete()
+        db.session.delete(charger)
+        db.session.commit()
+        return jsonify(success=True)
+
     @app.get("/api/my-chargers")
     def my_chargers():
         host, error = require_role("host")
@@ -393,8 +539,103 @@ def create_app():
             return error
         return jsonify(chargers=[charger_json(item) for item in Charger.query.filter_by(host_id=host.id).all()])
 
+    def seed_initial_data():
+        if Charger.query.count() > 0:
+            return
+        host1 = User(name="Vikram Rao", phone="+919876543210", role="host", kyc_verified=True)
+        host2 = User(name="Pooja Sharma", phone="+919812345678", role="host", kyc_verified=True)
+        driver1 = User(name="Arjun Mehta", phone="+919988776655", role="driver", kyc_verified=False)
+        db.session.add_all([host1, host2, driver1])
+        db.session.flush()
+
+        chargers = [
+            Charger(
+                host_id=host1.id,
+                title="Indiranagar 50kW Fast Hub",
+                address="100ft Road, near Metro Station, Indiranagar, Bengaluru",
+                lat=12.9784,
+                lng=77.6408,
+                connector_type="CCS2",
+                price_per_kwh=18.5,
+                is_available=True,
+                available_hours="24/7",
+            ),
+            Charger(
+                host_id=host1.id,
+                title="Koramangala 7.4kW Driveway Charger",
+                address="5th Block, near Sony World Junction, Koramangala, Bengaluru",
+                lat=12.9352,
+                lng=77.6245,
+                connector_type="Type 2",
+                price_per_kwh=13.0,
+                is_available=True,
+                available_hours="8:00 AM – 10:00 PM",
+            ),
+            Charger(
+                host_id=host2.id,
+                title="HSR Layout Sector 1 Fast Charging Point",
+                address="14th Main, Sector 1, HSR Layout, Bengaluru",
+                lat=12.9121,
+                lng=77.6446,
+                connector_type="CCS2",
+                price_per_kwh=16.0,
+                is_available=True,
+                available_hours="6:00 AM – 11:00 PM",
+            ),
+            Charger(
+                host_id=host2.id,
+                title="Whitefield Tech Park Home Charger",
+                address="ITPL Main Road, Brookefield, Whitefield, Bengaluru",
+                lat=12.9698,
+                lng=77.7500,
+                connector_type="Type 2",
+                price_per_kwh=14.0,
+                is_available=True,
+                available_hours="Available now",
+            ),
+        ]
+        db.session.add_all(chargers)
+        db.session.flush()
+
+        b1 = Booking(
+            charger_id=chargers[0].id,
+            driver_id=driver1.id,
+            status="completed",
+            total_amount=370.0,
+            energy_kwh=20.0,
+            payment_method="Google Pay",
+        )
+        b2 = Booking(
+            charger_id=chargers[1].id,
+            driver_id=driver1.id,
+            status="completed",
+            total_amount=195.0,
+            energy_kwh=15.0,
+            payment_method="PhonePe",
+        )
+        db.session.add_all([b1, b2])
+        db.session.flush()
+
+        r1 = Review(
+            booking_id=b1.id,
+            charger_id=chargers[0].id,
+            driver_id=driver1.id,
+            rating=5,
+            comment="Super fast charging and clean parking space. Host was very helpful!",
+        )
+        r2 = Review(
+            booking_id=b2.id,
+            charger_id=chargers[1].id,
+            driver_id=driver1.id,
+            rating=4,
+            comment="Convenient location in Koramangala. Smooth experience.",
+        )
+        db.session.add_all([r1, r2])
+        db.session.commit()
+
     with app.app_context():
         db.create_all()
+        seed_initial_data()
 
     return app
 
