@@ -1,4 +1,4 @@
-const CACHE_NAME = "cocharge-india-shell-v1";
+const CACHE_NAME = "cocharge-india-shell-v2";
 const APP_SHELL = ["/", "/static/manifest.json", "/static/icon.svg"];
 const OFFLINE_DEPENDENCIES = [
   "https://cdn.tailwindcss.com/",
